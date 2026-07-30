@@ -1,0 +1,12 @@
+[
+  {
+    "date": "2026-07-29",
+    "macrostructure": "Workbench",
+    "theme": "Cobalt",
+    "enrichment": "none",
+    "brief": "Self-hosted Csound WASM plugin workbench",
+    "nav": "N9",
+    "footer": "Ft2",
+    "tone": "brutalist"
+  }
+]

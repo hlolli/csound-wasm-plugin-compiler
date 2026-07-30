@@ -1,0 +1,96 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · theme: Cobalt · tone: brutalist · anchor hue: 256 · nav: N9 · footer: Ft2 · contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (49) · icons: pass (30) · mobile: pass (34, 49, 50–57) */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
+
+:root {
+  --color-paper: oklch(97.5% 0.006 256);
+  --color-paper-2: oklch(94% 0.009 256);
+  --color-paper-3: oklch(89% 0.012 256);
+  --color-rule: oklch(67% 0.018 256);
+  --color-rule-strong: oklch(23% 0.025 256);
+  --color-muted: oklch(45% 0.025 256);
+  --color-ink-2: oklch(31% 0.025 256);
+  --color-ink: oklch(18% 0.03 256);
+  --color-accent: oklch(48% 0.19 256);
+  --color-accent-hover: oklch(42% 0.2 256);
+  --color-accent-ink: oklch(98% 0.006 256);
+  --color-focus: oklch(42% 0.2 256);
+  --color-error: oklch(43% 0.18 28);
+  --color-error-hover: oklch(37% 0.19 28);
+  --color-warning: oklch(43% 0.12 75);
+  --color-success: oklch(40% 0.13 148);
+  --color-clear: transparent;
+
+  --color-editor-paper: oklch(15% 0.025 256);
+  --color-editor-paper-2: oklch(19% 0.028 256);
+  --color-editor-active: oklch(23% 0.035 256);
+  --color-editor-rule: oklch(34% 0.035 256);
+  --color-editor-muted: oklch(68% 0.035 256);
+  --color-editor-ink: oklch(93% 0.018 256);
+  --color-editor-selection: oklch(37% 0.09 256);
+  --color-editor-focus: oklch(78% 0.14 256);
+  --color-editor-warning: oklch(80% 0.13 75);
+  --color-syntax-keyword: oklch(74% 0.15 256);
+  --color-syntax-name: oklch(88% 0.03 256);
+  --color-syntax-number: oklch(80% 0.13 75);
+  --color-syntax-string: oklch(78% 0.11 148);
+  --color-syntax-type: oklch(76% 0.12 205);
+  --color-syntax-comment: oklch(66% 0.04 256);
+  --color-syntax-invalid: oklch(72% 0.17 28);
+
+  --font-display: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  --font-body: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", monospace;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+  --text-xl: 1.953rem;
+
+  --line-tight: 1.1;
+  --line-snug: 1.35;
+  --line-normal: 1.55;
+
+  --tracking-label: 0.08em;
+  --tracking-display: -0.025em;
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+
+  --target-touch: 2.75rem;
+  --panel-header-height: 3.75rem;
+  --diagnostics-height: clamp(10rem, 24svh, 14rem);
+
+  --rule-hair: 1px;
+  --rule-strong: 2px;
+  --rule-focus: 3px;
+  --rule-input-focus: 2px;
+  --radius-control: 0;
+  --offset-active: 1px;
+  --offset-control-focus: 2px;
+  --offset-input-focus: 1px;
+  --offset-underline: 2px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 100ms;
+  --dur-short: 180ms;
+  --dur-long: 360ms;
+  --dur-spinner: 900ms;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 200;
+}

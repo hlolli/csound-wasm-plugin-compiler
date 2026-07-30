@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta
+      name="description"
+      content="Compile, export, and run Csound WebAssembly opcode plugins on your own machine."
+    >
+    <meta name="color-scheme" content="light">
+    <title>Csound opcode workbench</title>
+  </head>
+  <body>
+    <header class="tool-bar" aria-label="Csound opcode workbench">
+      <h1 class="wordmark">OPCODE<span>.WASM</span></h1>
+
+      <div class="tool-bar__status">
+        <p
+          class="compile-status"
+          id="compile-status"
+          data-state="working"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          <span class="compile-status__mark" aria-hidden="true"></span>
+          <span id="compile-status-label">Checking local compiler</span>
+        </p>
+
+        <div class="tool-bar__actions">
+          <button
+            class="tool-button tool-button--run"
+            id="run-button"
+            type="button"
+            data-state="loading"
+            aria-label="Run"
+            aria-keyshortcuts="Meta+Enter Control+Enter"
+            disabled
+          >
+            Run
+          </button>
+          <button
+            class="tool-button tool-button--stop"
+            id="stop-button"
+            type="button"
+            data-state="idle"
+            aria-label="Stop"
+            disabled
+          >
+            Stop
+          </button>
+          <button
+            class="tool-button tool-button--export"
+            id="export-button"
+            type="button"
+            data-state="disabled"
+            aria-label="Export compiled WebAssembly plugin"
+            title="Run a successful build first"
+            disabled
+          >
+            Export WASM
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="workbench">
+      <div class="editors" aria-label="Plugin source and Csound document">
+        <section class="editor-panel" aria-labelledby="c-editor-title">
+          <header class="panel-header">
+            <div>
+              <h2 id="c-editor-title">Plugin source</h2>
+              <p id="source-description">C opcode code</p>
+            </div>
+            <div class="panel-header__tools">
+              <div
+                class="source-language"
+                role="group"
+                aria-label="Source language"
+              >
+                <button
+                  class="source-language__button"
+                  id="language-c-button"
+                  type="button"
+                  aria-controls="c-editor"
+                  aria-pressed="true"
+                >
+                  C
+                </button>
+                <button
+                  class="source-language__button"
+                  id="language-cpp-button"
+                  type="button"
+                  aria-controls="c-editor"
+                  aria-pressed="false"
+                >
+                  C++
+                </button>
+              </div>
+              <code id="source-file-name">plugin.c</code>
+            </div>
+          </header>
+          <div class="editor-host" id="c-editor"></div>
+        </section>
+
+        <section class="editor-panel" aria-labelledby="csd-editor-title">
+          <header class="panel-header">
+            <div>
+              <h2 id="csd-editor-title">Csound test</h2>
+              <p>Runs with the new plugin</p>
+            </div>
+            <code>example.csd</code>
+          </header>
+          <div class="editor-host" id="csd-editor"></div>
+        </section>
+      </div>
+
+      <section class="diagnostics" aria-labelledby="diagnostics-title">
+        <header class="diagnostics__header">
+          <div class="diagnostics__title">
+            <h2 id="diagnostics-title">Diagnostics</h2>
+            <span id="diagnostic-count">0 messages</span>
+          </div>
+          <button
+            class="tool-button tool-button--quiet"
+            id="clear-diagnostics"
+            type="button"
+            data-state="idle"
+          >
+            Clear
+          </button>
+        </header>
+        <ol
+          class="diagnostics__output"
+          id="diagnostics-output"
+          aria-label="Compiler and Csound messages"
+        ></ol>
+      </section>
+    </main>
+
+    <footer class="runtime-line" id="runtime-line">
+      <span>Run with <kbd>⌘</kbd> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+      <span id="compiler-state">Compiler checking</span>
+      <span id="audio-state">Audio idle</span>
+    </footer>
+
+    <noscript>This workbench needs JavaScript to compile and run Csound.</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
