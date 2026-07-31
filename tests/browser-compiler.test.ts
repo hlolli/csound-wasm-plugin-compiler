@@ -1,4 +1,5 @@
 import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import {
   beforeAll,
@@ -31,6 +32,9 @@ import {
 setDefaultTimeout(30_000)
 
 const projectRoot = resolve(import.meta.dir, "..")
+const csoundBrowserEntry = pathToFileURL(
+  resolve(projectRoot, "node_modules/@csound/browser/dist/csound.js")
+).href
 let csoundHeaders: Tree
 
 beforeAll(async () => {
@@ -57,7 +61,9 @@ async function runPluginToScoreEnd(wasm: ArrayBuffer): Promise<number> {
   })
 
   try {
-    const { libcsound } = await import("@csound/browser")
+    const { libcsound } = await import(
+      csoundBrowserEntry
+    ) as typeof import("@csound/browser")
     const api = await libcsound({
       withPlugins: [wasm]
     })
