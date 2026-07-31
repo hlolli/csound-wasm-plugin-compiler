@@ -2,9 +2,9 @@
 
 A small browser IDE for Csound WebAssembly plugins.
 
-Write a C or C++ opcode on the left. Write a CSD test on the right. Run builds the plugin inside a Web Worker, loads it into Csound, and starts audio.
+Write a C or C++ opcode on the left. Write a CSD test on the right. Run builds the plugin inside a Web Worker, loads it into Csound, and starts audio. Export WAV renders the same code to a file.
 
-The app is static. It has no compile server. Your source stays in the browser.
+The app is static. It has no compile server. It does not upload your source. Share puts the source in the URL and clipboard when you ask. WebMCP lets a browser agent work in the open tab when you enable it.
 
 ## Quick start
 
@@ -68,6 +68,12 @@ The C++ sample uses `csnd::Plugin` from `modload.h`.
 
 C++ exceptions and RTTI are off. This keeps the plugin small and matches the Csound WebAssembly plugin build.
 
+For browser builds, the compiler supplies a small `modload.h` adapter. The source API stays the same. The adapter uses `csound_opcode_init` because this Csound browser build cannot map callbacks from `csoundModuleInit`.
+
+Native builds still use the normal Csound `modload.h`.
+
+The compiler rejects a raw `csoundModuleInit` plugin before Run. That path stops on its first audio block in the pinned browser build.
+
 ## How Run works
 
 1. The page starts a compiler Web Worker
@@ -81,7 +87,7 @@ C++ exceptions and RTTI are off. This keeps the plugin small and matches the Cso
 
 A failed build leaves the current audio alone. A good build replaces the current Csound instance.
 
-Stop ends the active build or playback. It also closes the current Csound instance.
+Stop ends the active build, render, or playback. It also closes the current Csound instance.
 
 ## Browser compiler
 
@@ -107,6 +113,57 @@ Built by OPCODE.WASM
 
 The section does not change the plugin code or imports.
 
+The Wasm file uses the table and memory layout of the pinned Csound Wasm build. The compiler reads the linked file and tells the loader how much memory and table space it needs.
+
+## Export WAV
+
+Export WAV builds the active plugin and renders `example.csd` in a Csound worker. It downloads `opcode-wasm-render.wav` when the score ends.
+
+The page changes the CSD output option for this render. Other CSD options stay in place. The editor text does not change.
+
+Stop live playback before export. Stop can also end a render. A render has a 120 second limit.
+
+## Share links
+
+Share puts the current workspace in the URL and copies the link.
+
+The link contains:
+
+- The active C or C++ mode
+- The CSD
+- Changed C source
+- Changed C++ source
+
+The link uses Pako compression and a `#pako:` URL fragment. C and C++ source are left out when they match their initial text exactly. A link can still carry changes from both source modes.
+
+Opening a valid share link replaces saved editor text with the shared workspace. The first editor or source mode change clears the old share fragment. Press Share again to make a new link.
+
+## WebMCP
+
+The page registers WebMCP tools through `document.modelContext` when the browser provides it.
+
+For local Chrome use:
+
+1. Open `chrome://flags/#enable-webmcp-testing`
+2. Set WebMCP to Enabled
+3. Relaunch Chrome
+4. Open the workbench in a WebMCP browser agent
+
+The tools can:
+
+- Read the C, C++, and CSD editors
+- Update editor text with a revision check
+- Compile the active plugin
+- Run and stop Csound
+- Export Wasm and WAV files
+- Make a share link
+
+The revision check stops an agent from replacing a newer hand edit. Read the workspace again after a conflict.
+
+WebMCP runs inside the open tab. Closing the tab removes the tools. The app still works when WebMCP is off.
+
+The app does not send code to a model by itself. A WebMCP browser agent can read code when you ask it to use these tools. Check that agent and model before sharing private code.
+
 ## Csound plugin loading
 
 The selected `@csound/browser` build accepts plugins through `withPlugins` while it creates a Csound instance.
@@ -125,9 +182,11 @@ The app uses the AudioWorklet and worker path with `useWorker: true` and `useSAB
 - C source saves in `localStorage`
 - C++ source saves in `localStorage`
 - The CSD saves in `localStorage`
-- Source never leaves the browser
+- The app does not upload source
+- Share writes source to the URL fragment and clipboard
+- The browser does not send URL fragments to the static host
 - The compiler files load from the same static host
-- No cloud service receives the code
+- No cloud compile service receives the code
 
 ## Limits
 
@@ -135,10 +194,15 @@ The app uses the AudioWorklet and worker path with `useWorker: true` and `useSAB
 - Source size is 256 KiB
 - Compiler output is 128 KiB
 - Plugin size is 4 MiB
+- Share data is limited to 1 MiB before compression
+- The app warns when a share URL is longer than 64 KiB
 - Compiler load gets 120 seconds
 - A build gets 30 seconds
+- An audio render gets 120 seconds
 - One build runs at a time
 - Extra source files and custom flags are not supported
+- One C++ file can register up to 256 opcodes
+- Load one exported OPCODE.WASM plugin in each Csound instance
 - The plugin must export `__wasm_call_ctors`
 - The plugin must export a Csound plugin entry point
 

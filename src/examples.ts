@@ -1,4 +1,4 @@
-export const DEFAULT_C_SOURCE = `#include "csound.h"
+export const DEFAULT_C_SOURCE_V1 = `#include "csound.h"
 #include <csdl.h>
 #include <stdint.h>
 #include <string.h>
@@ -45,7 +45,9 @@ static OENTRY localops[] = {
 LINKAGE
 `
 
-export const DEFAULT_CPP_SOURCE = `#include <modload.h>
+export const DEFAULT_C_SOURCE = DEFAULT_C_SOURCE_V1
+
+export const DEFAULT_CPP_SOURCE_V1 = `#include <modload.h>
 
 struct IdeGain : csnd::Plugin<1, 2> {
   int32_t aperf() {
@@ -71,6 +73,8 @@ void csnd::on_load(Csound *csound) {
   );
 }
 `
+
+export const DEFAULT_CPP_SOURCE = DEFAULT_CPP_SOURCE_V1
 
 export const DEFAULT_CSD_SOURCE = `<CsoundSynthesizer>
 <CsOptions>

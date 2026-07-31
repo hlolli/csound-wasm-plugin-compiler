@@ -127,6 +127,18 @@ export class CsoundRuntime {
     )
   }
 
+  async getAudioContextState(): Promise<AudioContextState | "unavailable"> {
+    const run = this.currentRun
+    if (!run) return "unavailable"
+
+    try {
+      const context = await run.csound.getAudioContext()
+      return context?.state ?? "unavailable"
+    } catch {
+      return "unavailable"
+    }
+  }
+
   async start(pluginWasm: ArrayBuffer, csdText: string): Promise<void> {
     this.assertPlugin(pluginWasm)
     this.assertCsd(csdText)

@@ -48,6 +48,17 @@ button:focus-visible {
   outline-offset: var(--offset-control-focus);
 }
 
+.clipboard-proxy {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: var(--space-3xs);
+  height: var(--space-3xs);
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .cm-editor.cm-focused {
   outline-color: var(--color-editor-focus);
 }
@@ -160,8 +171,12 @@ button:focus-visible {
 }
 
 .tool-bar__actions {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-xs);
 }
 
@@ -200,6 +215,11 @@ button:focus-visible {
 .tool-button--export {
   border-color: var(--color-rule-strong);
   background: var(--color-paper-2);
+}
+
+.tool-button--share {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .tool-button--quiet {
@@ -545,6 +565,55 @@ button:focus-visible {
   font-weight: var(--weight-bold);
 }
 
+.webmcp-info {
+  position: relative;
+  display: inline-flex;
+}
+
+.webmcp-info__trigger {
+  min-height: var(--target-touch);
+  padding: 0 var(--space-xs);
+  border: 0;
+  background: var(--color-clear);
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: var(--rule-hair);
+  text-underline-offset: var(--offset-underline);
+  cursor: help;
+}
+
+.runtime-line .webmcp-info__tooltip {
+  position: absolute;
+  z-index: var(--z-sticky);
+  inset-inline-end: 0;
+  bottom: calc(100% + var(--space-xs));
+  width: min(18rem, calc(100vw - var(--space-md) - var(--space-md)));
+  padding: var(--space-xs) var(--space-sm);
+  border: var(--rule-strong) solid var(--color-rule-strong);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  line-height: var(--line-snug);
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(var(--offset-active));
+  transition:
+    opacity var(--dur-short) var(--ease-out),
+    transform var(--dur-short) var(--ease-out),
+    visibility 0s linear var(--dur-short);
+  pointer-events: auto;
+}
+
+.webmcp-info:focus-within .webmcp-info__tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
 noscript {
   padding: var(--space-md);
   background: var(--color-error);
@@ -571,6 +640,24 @@ noscript {
     background: var(--color-paper-3);
   }
 
+  .tool-button--share:hover:not(:disabled) {
+    background: var(--color-paper-2);
+  }
+
+  .webmcp-info:hover .webmcp-info__trigger {
+    color: var(--color-ink);
+  }
+
+  .webmcp-info:hover .webmcp-info__tooltip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition-delay:
+      850ms,
+      850ms,
+      calc(850ms + var(--dur-short));
+  }
+
   .tool-button--quiet:hover:not(:disabled) {
     color: var(--color-ink);
   }
@@ -595,6 +682,23 @@ noscript {
 @media (max-width: 22rem) {
   .panel-header__tools code {
     display: none;
+  }
+}
+
+@media (max-width: 28rem) {
+  .tool-bar__actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tool-button--share {
+    grid-column: 1 / -1;
+  }
+
+  .webmcp-info {
+    flex: 1 0 100%;
+    justify-content: flex-end;
   }
 }
 

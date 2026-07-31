@@ -42,15 +42,33 @@ export interface EditorSources {
   language: SourceLanguage
 }
 
+export interface EditorWorkspace {
+  c: string
+  cpp: string
+  csd: string
+  language: SourceLanguage
+}
+
+export interface EditorWorkspacePatch {
+  c?: string
+  cpp?: string
+  csd?: string
+  language?: SourceLanguage
+}
+
 export interface CreateEditorsOptions {
   cParent: HTMLElement
   csdParent: HTMLElement
   onRun: () => void
   onSourceChange?: () => void
+  onWorkspaceChange?: () => void
+  initialWorkspace?: EditorWorkspace
 }
 
 export interface EditorsController {
   getSources: () => EditorSources
+  getWorkspace: () => EditorWorkspace
+  updateWorkspace: (patch: EditorWorkspacePatch) => EditorWorkspace
   setLanguage: (language: SourceLanguage) => void
   setCompilerDiagnostics: (diagnostics: readonly EditorDiagnostic[]) => void
   focusSourceLine: (line: number, column?: number | null) => void
@@ -213,7 +231,10 @@ function createPersistListener(
   return {
     extension,
     flush: (value: string) => {
-      if (timer !== undefined) clearTimeout(timer)
+      if (timer !== undefined) {
+        clearTimeout(timer)
+        timer = undefined
+      }
       save(value)
     }
   }
@@ -242,12 +263,34 @@ function commonExtensions(onRun: () => void, darkMode = true) {
 }
 
 export function createEditors(options: CreateEditorsOptions): EditorsController {
-  let language = storedLanguage()
+  const initialWorkspace = options.initialWorkspace
+  let language = initialWorkspace?.language ?? storedLanguage()
+  let suppressChangeCallbacks = false
+
+  if (initialWorkspace) {
+    storeValue(C_SOURCE_STORAGE_KEY, initialWorkspace.c)
+    storeValue(CPP_SOURCE_STORAGE_KEY, initialWorkspace.cpp)
+    storeValue(CSD_SOURCE_STORAGE_KEY, initialWorkspace.csd)
+    storeValue(SOURCE_LANGUAGE_STORAGE_KEY, initialWorkspace.language)
+  }
+
+  const notifySourceChange = () => {
+    if (suppressChangeCallbacks) return
+    options.onSourceChange?.()
+    options.onWorkspaceChange?.()
+  }
+  const notifyWorkspaceChange = () => {
+    if (!suppressChangeCallbacks) options.onWorkspaceChange?.()
+  }
+
   const sourcePersistence = createPersistListener(
     () => sourceStorageKey(language),
-    options.onSourceChange,
+    notifySourceChange
   )
-  const csdPersistence = createPersistListener(CSD_SOURCE_STORAGE_KEY)
+  const csdPersistence = createPersistListener(
+    CSD_SOURCE_STORAGE_KEY,
+    notifyWorkspaceChange
+  )
   const sourceExtensions = [
     ...commonExtensions(options.onRun),
     cpp(),
@@ -255,11 +298,11 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   ]
   const sourceStates: Record<SourceLanguage, EditorState> = {
     c: EditorState.create({
-      doc: storedValue(C_SOURCE_STORAGE_KEY, DEFAULT_C_SOURCE),
+      doc: initialWorkspace?.c ?? storedValue(C_SOURCE_STORAGE_KEY, DEFAULT_C_SOURCE),
       extensions: sourceExtensions
     }),
     cpp: EditorState.create({
-      doc: storedValue(CPP_SOURCE_STORAGE_KEY, DEFAULT_CPP_SOURCE),
+      doc: initialWorkspace?.cpp ?? storedValue(CPP_SOURCE_STORAGE_KEY, DEFAULT_CPP_SOURCE),
       extensions: sourceExtensions
     })
   }
@@ -272,7 +315,7 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   const csdView = new EditorView({
     parent: options.csdParent,
     state: EditorState.create({
-      doc: storedValue(CSD_SOURCE_STORAGE_KEY, DEFAULT_CSD_SOURCE),
+      doc: initialWorkspace?.csd ?? storedValue(CSD_SOURCE_STORAGE_KEY, DEFAULT_CSD_SOURCE),
       extensions: [
         ...commonExtensions(options.onRun, false),
         csoundMode({ fileType: "csd" }),
@@ -297,12 +340,104 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
     cView.focus()
   }
 
+  const getWorkspace = (): EditorWorkspace => {
+    sourceStates[language] = cView.state
+    return {
+      c: sourceStates.c.doc.toString(),
+      cpp: sourceStates.cpp.doc.toString(),
+      csd: csdView.state.doc.toString(),
+      language
+    }
+  }
+
+  const updateWorkspace = (patch: EditorWorkspacePatch): EditorWorkspace => {
+    const before = getWorkspace()
+    const next: EditorWorkspace = {
+      c: patch.c ?? before.c,
+      cpp: patch.cpp ?? before.cpp,
+      csd: patch.csd ?? before.csd,
+      language: patch.language ?? before.language
+    }
+
+    if (
+      next.c === before.c &&
+      next.cpp === before.cpp &&
+      next.csd === before.csd &&
+      next.language === before.language
+    ) {
+      return before
+    }
+
+    const activeSourceBefore = before.language === "c" ? before.c : before.cpp
+    const activeSourceAfter = next.language === "c" ? next.c : next.cpp
+    suppressChangeCallbacks = true
+
+    try {
+      for (const sourceLanguage of ["c", "cpp"] as const) {
+        const nextSource = next[sourceLanguage]
+        const state = sourceLanguage === language
+          ? cView.state
+          : sourceStates[sourceLanguage]
+        const currentSource = state.doc.toString()
+        if (nextSource === currentSource) continue
+
+        const change = {
+          from: 0,
+          to: state.doc.length,
+          insert: nextSource
+        }
+        if (sourceLanguage === language) {
+          cView.dispatch({ changes: change })
+          sourceStates[sourceLanguage] = cView.state
+        } else {
+          sourceStates[sourceLanguage] = state.update({ changes: change }).state
+        }
+      }
+
+      if (next.csd !== before.csd) {
+        csdView.dispatch({
+          changes: {
+            from: 0,
+            to: csdView.state.doc.length,
+            insert: next.csd
+          }
+        })
+      }
+
+      if (next.language !== language) {
+        sourcePersistence.flush(cView.state.doc.toString())
+        sourceStates[language] = cView.state
+        language = next.language
+        cView.setState(sourceStates[language])
+        cView.dispatch(setDiagnostics(cView.state, []))
+      }
+    } finally {
+      suppressChangeCallbacks = false
+    }
+
+    storeValue(C_SOURCE_STORAGE_KEY, next.c)
+    storeValue(CPP_SOURCE_STORAGE_KEY, next.cpp)
+    storeValue(CSD_SOURCE_STORAGE_KEY, next.csd)
+    storeValue(SOURCE_LANGUAGE_STORAGE_KEY, next.language)
+
+    if (
+      next.language !== before.language ||
+      activeSourceAfter !== activeSourceBefore
+    ) {
+      options.onSourceChange?.()
+    }
+    options.onWorkspaceChange?.()
+    return getWorkspace()
+  }
+
   return {
     getSources: () => ({
       source: cView.state.doc.toString(),
       csd: csdView.state.doc.toString(),
       language
     }),
+    getWorkspace,
+    updateWorkspace,
     setLanguage: (nextLanguage) => {
       if (language === nextLanguage) return
 
@@ -313,6 +448,7 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
       cView.setState(sourceStates[language])
       cView.dispatch(setDiagnostics(cView.state, []))
       options.onSourceChange?.()
+      options.onWorkspaceChange?.()
     },
     setCompilerDiagnostics: (diagnostics) => {
       const marks: CodeMirrorDiagnostic[] = []

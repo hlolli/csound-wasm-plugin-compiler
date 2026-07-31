@@ -13,10 +13,14 @@ import {
   type CompileFailureReason,
   type CompileResult
 } from "./protocol"
+import { CPP_MODLOAD_COMPAT_HEADER } from "./cpp-modload-compat"
 import { addOpcodeWasmHeader } from "./wasm-metadata"
 
 const outputName = "plugin.wasm"
 const encoder = new TextEncoder()
+export const CSOUND_PLUGIN_GLOBAL_BASE = 128 * 1024 * 1024
+export const CSOUND_HOST_TABLE_ENTRIES = 3837
+export const CSOUND_PLUGIN_TABLE_BASE = 4096
 
 export interface CompilerProgress {
   loaded: number
@@ -50,6 +54,9 @@ export function compileArgs(
     "-ferror-limit=50",
     "-nostartfiles",
     "-Wl,-z,stack-size=131072",
+    `-Wl,--global-base=${CSOUND_PLUGIN_GLOBAL_BASE}`,
+    `-Wl,--table-base=${CSOUND_PLUGIN_TABLE_BASE}`,
+    "-Wl,--no-stack-first",
     "-Wl,--import-table",
     "-Wl,--import-memory",
     "-Wl,--no-entry",
@@ -112,10 +119,16 @@ async function validatePlugin(wasm: ArrayBuffer): Promise<string | null> {
     return "The plugin does not export __wasm_call_ctors"
   }
 
+  if (exports.has("csoundModuleInit")) {
+    return [
+      "This Csound WASM build cannot run module-entry plugins.",
+      "Include <modload.h> so the browser-safe C++ adapter can load it"
+    ].join(" ")
+  }
+
   const hasEntry =
     exports.has("csound_opcode_init") ||
-    exports.has("csound_fgen_init") ||
-    exports.has("csoundModuleCreate")
+    exports.has("csound_fgen_init")
 
   return hasEntry ? null : "The source does not export a Csound plugin entry point"
 }
@@ -149,11 +162,21 @@ export async function compilePlugin(
     )
   }
 
+  const includeFiles: Tree = language === "cpp"
+    ? {
+        csound: {
+          ...csoundHeaders,
+          "modload.h": CPP_MODLOAD_COMPAT_HEADER
+        },
+        "modload.h": CPP_MODLOAD_COMPAT_HEADER
+      }
+    : {
+        csound: csoundHeaders
+      }
+
   const files: Tree = {
     [inputName]: source,
-    include: {
-      csound: csoundHeaders
-    }
+    include: includeFiles
   }
   const decoder = new TextDecoder()
   let output = ""
@@ -253,7 +276,10 @@ export async function compilePlugin(
     )
   }
 
-  const wasm = addOpcodeWasmHeader(exactArrayBuffer(rawWasm))
+  const wasm = addOpcodeWasmHeader(exactArrayBuffer(rawWasm), {
+    memoryBaseBytes: CSOUND_PLUGIN_GLOBAL_BASE,
+    hostTableEntries: CSOUND_HOST_TABLE_ENTRIES
+  })
   if (wasm.byteLength > MAX_WASM_BYTES) {
     return failedResult(
       "wasm_limit",

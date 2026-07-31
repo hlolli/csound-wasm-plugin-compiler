@@ -38,6 +38,14 @@ Sources:
 - <https://github.com/lezer-parser>
 - <https://github.com/hlolli/codemirror-lang-csound>
 
+## Share links
+
+- Pako 2.2.0
+- MIT and zlib licenses
+- Source: <https://github.com/nodeca/pako>
+
+Static builds include the Pako texts in `licenses/pako-MIT.txt` and `licenses/pako-Zlib.txt`.
+
 ## Fonts
 
 - IBM Plex Sans under the SIL Open Font License 1.1

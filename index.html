@@ -60,6 +60,27 @@
           >
             Export WASM
           </button>
+          <button
+            class="tool-button tool-button--export"
+            id="export-audio-button"
+            type="button"
+            data-state="disabled"
+            aria-label="Render example.csd and export WAV audio"
+            title="Run a successful build first"
+            disabled
+          >
+            Export WAV
+          </button>
+          <button
+            class="tool-button tool-button--share"
+            id="share-button"
+            type="button"
+            data-state="idle"
+            aria-live="polite"
+            title="Copy a link with both source modes and the CSD"
+          >
+            Share
+          </button>
         </div>
       </div>
     </header>
@@ -142,6 +163,23 @@
       <span>Run with <kbd>⌘</kbd> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
       <span id="compiler-state">Compiler loading</span>
       <span id="audio-state">Audio idle</span>
+      <span class="webmcp-info">
+        <button
+          class="webmcp-info__trigger"
+          id="webmcp-info-button"
+          type="button"
+          aria-describedby="webmcp-info-tooltip"
+        >
+          WebMCP supported
+        </button>
+        <span
+          class="webmcp-info__tooltip"
+          id="webmcp-info-tooltip"
+          role="tooltip"
+        >
+          Enable chrome://flags/#enable-webmcp-testing, then relaunch Chrome.
+        </span>
+      </span>
     </footer>
 
     <noscript>This workbench needs JavaScript to compile and run Csound.</noscript>
