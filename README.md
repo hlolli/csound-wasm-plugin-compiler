@@ -8,11 +8,11 @@ The app is static. It has no compile server. Your source stays in the browser.
 
 ## Quick start
 
-You need Nix with flakes on.
+You need Bun 1.3.13 or newer.
 
 ```sh
-nix run .#install
-nix run .#dev
+bun install --frozen-lockfile
+bun run dev
 ```
 
 Open <http://127.0.0.1:5173>.
@@ -24,8 +24,8 @@ Later runs use the browser cache.
 ## Build
 
 ```sh
-nix run .#build
-nix run .#preview
+bun run build
+bun run preview
 ```
 
 Open <http://127.0.0.1:4173>.
@@ -36,22 +36,24 @@ The full app is in `dist`. You can copy that folder to any static host. Asset li
 
 | Command | Use |
 | --- | --- |
-| `nix run .#install` | Install web packages with Bun |
-| `nix run .#dev` | Start Vite |
-| `nix run .#typecheck` | Check TypeScript |
-| `nix run .#test` | Run tests and real C and C++ builds |
-| `nix run .#build` | Check and build the static app |
-| `nix run .#preview` | Serve the built app |
+| `bun install --frozen-lockfile` | Install web packages |
+| `bun run dev` | Start Vite |
+| `bun run typecheck` | Check TypeScript |
+| `bun run test` | Run tests and real C and C++ builds |
+| `bun run build` | Check and build the static app |
+| `bun run preview` | Serve the built app |
 
-`nix run .` starts Vite.
+## Optional Nix shell
 
-You can also use:
+The flake gives you the pinned Bun from Nixpkgs. It does not build the compiler or web packages.
 
 ```sh
 nix develop
+bun install --frozen-lockfile
+bun run dev
 ```
 
-The shell has Bun. Web packages still come from npm and stay in `node_modules`.
+Web packages still come from npm and stay in `node_modules`.
 
 ## C and C++
 
@@ -87,7 +89,7 @@ The app pins `@yowasp/clang` at `22.0.0-git20542-10`.
 
 It contains Clang, LLD, wasi-libc, compiler-rt, libc++, and the WASI helper libraries. The Csound headers come from the matching `@csound/wasm-bin` package.
 
-Nix only supplies Bun for this project. You do not need WASI SDK or a native cross compiler.
+You do not need Nix, WASI SDK, or a native cross compiler.
 
 The YoWASP source repo is read only now. Keep the package version pinned. Test any toolchain change with both sample plugins.
 
