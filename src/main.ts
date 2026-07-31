@@ -7,6 +7,11 @@ import "@fontsource/jetbrains-mono/latin-700.css"
 import "./styles.css"
 
 import {
+  CompilerClient,
+  type CompilerState
+} from "./compiler/client"
+import type { CompileResult } from "./compiler/protocol"
+import {
   createEditors,
   sourceFileName,
   type EditorDiagnostic,
@@ -17,31 +22,6 @@ import {
   type CsoundRuntimeError,
   type RuntimeState
 } from "./runtime"
-
-interface CompileMeta {
-  ok: boolean
-  exitCode: number | null
-  timedOut: boolean
-  diagnostics: EditorDiagnostic[]
-  output: string
-  durationMs: number
-  reason?: string
-}
-
-interface CompileResponse {
-  meta: CompileMeta
-  wasm?: ArrayBuffer
-}
-
-interface HealthResponse {
-  ok: boolean
-  workerReady: boolean
-  queuedJobs: number
-  checks: Array<{
-    name: string
-    ok: boolean
-  }>
-}
 
 type DiagnosticLevel = "error" | "warning" | "note" | "success" | "runtime"
 
@@ -96,8 +76,6 @@ const audioState = requiredElement<HTMLSpanElement>("audio-state")
 let compilerReady = false
 let operationRunning = false
 let operationId = 0
-let compileController: AbortController | undefined
-let healthTimer: ReturnType<typeof setTimeout> | undefined
 let messages: UiDiagnostic[] = []
 let compiledPlugin: ArrayBuffer | undefined
 
@@ -119,6 +97,10 @@ const editors = createEditors({
 const runtime = createCsoundRuntime({
   onStateChange: handleRuntimeState,
   onMessage: handleRuntimeMessage
+})
+
+const compiler = new CompilerClient({
+  onStateChange: handleCompilerState
 })
 
 function setStatus(
@@ -261,50 +243,32 @@ function compilerMessage(
   }
 }
 
-async function parseCompileResponse(response: Response): Promise<CompileResponse> {
-  const contentType = response.headers.get("content-type") ?? ""
-  if (!contentType.toLowerCase().startsWith("multipart/form-data")) {
-    const detail = (await response.text()).trim()
-    throw new Error(detail || `Compiler service returned ${response.status}`)
-  }
+function sourceMatches(
+  left: ReturnType<typeof editors.getSources>,
+  right: ReturnType<typeof editors.getSources>
+): boolean {
+  return left.language === right.language && left.source === right.source
+}
 
-  const body = await response.formData()
-  const metaPart = body.get("meta")
-  if (!(metaPart instanceof Blob)) {
-    throw new Error("Compiler response has no metadata")
-  }
-
-  let meta: CompileMeta
-  try {
-    meta = JSON.parse(await metaPart.text()) as CompileMeta
-  } catch {
-    throw new Error("Compiler response metadata is invalid")
-  }
-
-  const pluginPart = body.get("plugin")
-  const wasm = pluginPart instanceof Blob
-    ? await pluginPart.arrayBuffer()
-    : undefined
-
-  return { meta, wasm }
+function finishChangedRun(message: string): void {
+  operationRunning = false
+  compilerState.textContent = "Compiler ready"
+  addDiagnostic({
+    level: "warning",
+    message
+  })
+  setStatus(
+    runtime.isPlaying ? "playing" : "ready",
+    runtime.isPlaying ? "Playing" : "Ready"
+  )
+  updateControls(runtime.isPlaying ? "success" : "idle")
 }
 
 async function compileSource(
   source: string,
-  language: SourceLanguage,
-  signal: AbortSignal
-): Promise<CompileResponse> {
-  const response = await fetch("/api/compile", {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "X-Plugin-Language": language
-    },
-    body: source,
-    signal
-  })
-
-  return parseCompileResponse(response)
+  language: SourceLanguage
+): Promise<CompileResult> {
+  return compiler.compile(source, language)
 }
 
 function runtimeLabel(state: RuntimeState): string {
@@ -355,6 +319,43 @@ function handleRuntimeState(state: RuntimeState, error?: CsoundRuntimeError): vo
   updateControls()
 }
 
+function handleCompilerState(state: CompilerState): void {
+  if (state.state === "loading") {
+    compilerReady = false
+    const percent = state.total > 0
+      ? Math.min(100, Math.round(state.loaded / state.total * 100))
+      : 0
+    compilerState.textContent = state.total > 0
+      ? `Compiler loading · ${percent}%`
+      : "Compiler loading"
+    if (operationRunning) {
+      setStatus(
+        "working",
+        state.total > 0 ? `Loading Clang · ${percent}%` : "Loading Clang"
+      )
+    } else if (runtime.state === "idle") {
+      setStatus("working", state.total > 0 ? `Loading compiler · ${percent}%` : "Loading compiler")
+    }
+    updateControls("loading")
+    return
+  }
+
+  if (state.state === "error") {
+    compilerReady = true
+    compilerState.textContent = "Compiler error"
+    if (!operationRunning) setStatus("error", state.message)
+    updateControls("error")
+    return
+  }
+
+  compilerReady = true
+  compilerState.textContent = "Compiler ready"
+  if (!operationRunning) {
+    setStatus(runtime.isPlaying ? "playing" : "ready", runtime.isPlaying ? "Playing" : "Ready")
+  }
+  updateControls(runtime.isPlaying ? "success" : "idle")
+}
+
 function handleRuntimeMessage(rawMessage: string): void {
   const lines = rawMessage
     .split(/\r?\n/)
@@ -375,10 +376,8 @@ async function run(): Promise<void> {
   const currentId = ++operationId
   const sources = editors.getSources()
   const inputName = sourceFileName(sources.language)
-  const controller = new AbortController()
   let pluginBuilt = false
   setCompiledPlugin()
-  compileController = controller
   operationRunning = true
   editors.setCompilerDiagnostics([])
   replaceDiagnostics([], `Building ${inputName}`)
@@ -387,20 +386,24 @@ async function run(): Promise<void> {
   updateControls("loading")
 
   try {
-    const result = await compileSource(
-      sources.source,
-      sources.language,
-      controller.signal
-    )
+    const result = await compileSource(sources.source, sources.language)
     if (currentId !== operationId) return
 
-    editors.setCompilerDiagnostics(result.meta.diagnostics)
-    const compilerDiagnostics = result.meta.diagnostics.map((diagnostic) =>
+    const currentSources = editors.getSources()
+    if (!sourceMatches(currentSources, sources)) {
+      editors.setCompilerDiagnostics([])
+      replaceDiagnostics([], `Built ${inputName}, but the source changed`)
+      finishChangedRun("Source changed during the build. Run again.")
+      return
+    }
+
+    editors.setCompilerDiagnostics(result.diagnostics)
+    const compilerDiagnostics = result.diagnostics.map((diagnostic) =>
       compilerMessage(diagnostic, inputName)
     )
 
-    if (!result.meta.ok || !result.wasm) {
-      const fallback = result.meta.output.trim() || "Clang did not build the plugin"
+    if (!result.ok || !result.wasm) {
+      const fallback = result.output.trim() || "Clang did not build the plugin"
       const nextMessages = compilerDiagnostics.length > 0
         ? compilerDiagnostics
         : [{ level: "error" as const, message: fallback }]
@@ -418,22 +421,33 @@ async function run(): Promise<void> {
       ...compilerDiagnostics,
       {
         level: "success",
-        message: `Built plugin.wasm from ${inputName} in ${Math.round(result.meta.durationMs)} ms · ${readableBytes(result.wasm.byteLength)}`
+        message: `Built plugin.wasm from ${inputName} in ${Math.round(result.durationMs)} ms · ${readableBytes(result.wasm.byteLength)}`
       }
     ])
     pluginBuilt = true
-    const currentSources = editors.getSources()
-    if (
-      currentSources.language === sources.language &&
-      currentSources.source === sources.source
-    ) {
-      setCompiledPlugin(result.wasm)
+    setCompiledPlugin(result.wasm)
+    compilerState.textContent = `Compiler ready · ${Math.round(result.durationMs)} ms`
+
+    if (currentSources.csd !== sources.csd) {
+      finishChangedRun("CSD changed during the build. Run again.")
+      return
     }
-    compilerState.textContent = `Compiler ready · ${Math.round(result.meta.durationMs)} ms`
+
     setStatus("working", "Replacing Csound")
 
     await runtime.start(result.wasm, sources.csd)
     if (currentId !== operationId) return
+
+    const sourcesAfterStart = editors.getSources()
+    if (
+      !sourceMatches(sourcesAfterStart, sources) ||
+      sourcesAfterStart.csd !== sources.csd
+    ) {
+      await runtime.stop()
+      if (currentId !== operationId) return
+      finishChangedRun("Code changed while Csound started. Run again.")
+      return
+    }
 
     operationRunning = false
     if (runtime.isPlaying) {
@@ -461,10 +475,6 @@ async function run(): Promise<void> {
 
     setStatus("error", message)
     updateControls("error")
-  } finally {
-    if (compileController === controller) {
-      compileController = undefined
-    }
   }
 }
 
@@ -481,7 +491,7 @@ function exportPlugin(): void {
   document.body.append(link)
   link.click()
   link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 0)
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 
   addDiagnostic({
     level: "success",
@@ -491,8 +501,7 @@ function exportPlugin(): void {
 
 async function stop(): Promise<void> {
   const currentId = ++operationId
-  compileController?.abort()
-  compileController = undefined
+  compiler.cancel()
   operationRunning = true
   setStatus("working", "Stopping")
   updateControls("loading")
@@ -500,7 +509,7 @@ async function stop(): Promise<void> {
   try {
     await runtime.stop()
     if (currentId !== operationId) return
-    setStatus(compilerReady ? "ready" : "error", compilerReady ? "Ready" : "Compiler unavailable")
+    setStatus(compilerReady ? "ready" : "working", compilerReady ? "Ready" : "Loading compiler")
   } catch (error) {
     if (currentId !== operationId) return
     const message = errorText(error)
@@ -517,54 +526,6 @@ async function stop(): Promise<void> {
   }
 }
 
-async function checkCompiler(): Promise<void> {
-  if (operationRunning) {
-    healthTimer = setTimeout(() => void checkCompiler(), 2000)
-    return
-  }
-
-  try {
-    const response = await fetch("/api/health", {
-      headers: {
-        Accept: "application/json"
-      }
-    })
-    const health = await response.json() as HealthResponse
-
-    compilerReady = response.ok && health.ok
-    if (compilerReady) {
-      if (!compilerState.textContent?.startsWith("Compiler ready ·")) {
-        compilerState.textContent = "Compiler ready"
-      }
-      if (runtime.state === "idle") setStatus("ready", "Ready")
-      if (runtime.isPlaying) setStatus("playing", "Playing")
-      updateControls(runtime.isPlaying ? "success" : "idle")
-      healthTimer = setTimeout(() => void checkCompiler(), 5000)
-      return
-    }
-
-    const missing = health.checks
-      .filter((check) => !check.ok)
-      .map((check) => check.name)
-    const reason = missing.length > 0
-      ? `Missing ${missing.join(", ")}`
-      : health.workerReady
-        ? "Compiler unavailable"
-        : "Compiler worker starting"
-
-    compilerState.textContent = reason
-    setStatus("error", reason)
-    updateControls()
-  } catch {
-    compilerReady = false
-    compilerState.textContent = "Compiler offline"
-    setStatus("error", "Local compiler is offline")
-    updateControls()
-  }
-
-  healthTimer = setTimeout(() => void checkCompiler(), 2000)
-}
-
 runButton.addEventListener("click", () => void run())
 stopButton.addEventListener("click", () => void stop())
 exportButton.addEventListener("click", exportPlugin)
@@ -576,13 +537,11 @@ clearButton.addEventListener("click", () => {
 })
 
 window.addEventListener("beforeunload", () => {
-  if (healthTimer !== undefined) clearTimeout(healthTimer)
-  compileController?.abort()
+  compiler.destroy()
   editors.destroy()
   void runtime.stop()
 })
 
 renderSourceLanguage(editors.getSources().language)
 renderDiagnostics()
-updateControls("loading")
-void checkCompiler()
+updateControls()

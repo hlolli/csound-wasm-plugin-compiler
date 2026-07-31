@@ -1,12 +1,11 @@
+import type { SourceLanguage } from "../editors"
+
 export const MAX_SOURCE_BYTES = 256 * 1024
 export const MAX_COMPILER_OUTPUT_BYTES = 128 * 1024
 export const MAX_WASM_BYTES = 4 * 1024 * 1024
-export const CLANG_TIMEOUT_MS = 10_000
-export const WORKER_GUARD_MS = 12_000
-export const MAX_QUEUED_JOBS = 4
+export const COMPILER_GUARD_MS = 30_000
 
 export type DiagnosticSeverity = "fatal error" | "error" | "warning" | "note"
-export type SourceLanguage = "c" | "cpp"
 
 export interface CompilerDiagnostic {
   file: string
@@ -18,7 +17,6 @@ export interface CompilerDiagnostic {
 
 export type CompileFailureReason =
   | "compile_error"
-  | "timeout"
   | "source_limit"
   | "output_limit"
   | "wasm_limit"
@@ -36,14 +34,6 @@ export interface CompileResult {
   wasm?: ArrayBuffer
 }
 
-export interface CompilerConfig {
-  csoundSdkPath: string
-  cCompilerPath: string
-  cppCompilerPath: string
-  cppLibraryPath: string
-  linkerPath: string
-}
-
 export interface CompileJobMessage {
   type: "compile"
   id: number
@@ -51,23 +41,31 @@ export interface CompileJobMessage {
   language: SourceLanguage
 }
 
-export interface WorkerReadyMessage {
+export interface CompilerLoadMessage {
+  type: "load"
+  loaded: number
+  total: number
+}
+
+export interface CompilerReadyMessage {
   type: "ready"
 }
 
-export interface WorkerStartedMessage {
-  type: "started"
-  id: number
-  pid: number
-}
-
-export interface WorkerResultMessage {
+export interface CompilerResultMessage {
   type: "result"
   id: number
   result: CompileResult
 }
 
-export type CompilerWorkerMessage =
-  | WorkerReadyMessage
-  | WorkerStartedMessage
-  | WorkerResultMessage
+export interface CompilerFatalMessage {
+  type: "fatal"
+  message: string
+}
+
+export type CompilerWorkerRequest = CompileJobMessage
+
+export type CompilerWorkerResponse =
+  | CompilerLoadMessage
+  | CompilerReadyMessage
+  | CompilerResultMessage
+  | CompilerFatalMessage

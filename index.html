@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta
       name="description"
-      content="Compile, export, and run Csound WebAssembly opcode plugins on your own machine."
+      content="Compile, export, and run Csound WebAssembly opcode plugins in your browser."
     >
     <meta name="color-scheme" content="light">
     <title>Csound opcode workbench</title>
@@ -24,7 +24,7 @@
           aria-atomic="true"
         >
           <span class="compile-status__mark" aria-hidden="true"></span>
-          <span id="compile-status-label">Checking local compiler</span>
+          <span id="compile-status-label">Loading compiler</span>
         </p>
 
         <div class="tool-bar__actions">
@@ -140,7 +140,7 @@
 
     <footer class="runtime-line" id="runtime-line">
       <span>Run with <kbd>⌘</kbd> or <kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
-      <span id="compiler-state">Compiler checking</span>
+      <span id="compiler-state">Compiler loading</span>
       <span id="audio-state">Audio idle</span>
     </footer>
 

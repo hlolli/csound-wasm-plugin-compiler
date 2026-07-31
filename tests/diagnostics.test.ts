@@ -3,19 +3,18 @@ import { describe, expect, test } from "bun:test"
 import {
   parseCompilerDiagnostics,
   sanitizeCompilerOutput,
-} from "../server/diagnostics"
+} from "../src/compiler/diagnostics"
 
 describe("compiler diagnostics", () => {
   test("parses source lines and keeps non-source files", () => {
-    const buildDir = "/tmp/csound-plugin-parser"
     const output = [
-      `${buildDir}/plugin.c:12:7: error: expected expression`,
+      "/workspace/plugin.c:12:7: error: expected expression",
       "plugin.c:18:3: warning: unused value [-Wunused-value]",
       "/sdk/include/csound/csound.h:20:2: note: expanded from here",
       "1 error generated.",
     ].join("\n")
 
-    expect(parseCompilerDiagnostics(output, buildDir)).toEqual([
+    expect(parseCompilerDiagnostics(output)).toEqual([
       {
         file: "plugin.c",
         line: 12,
@@ -40,14 +39,13 @@ describe("compiler diagnostics", () => {
     ])
   })
 
-  test("removes color, temp paths, and carriage returns", () => {
-    const buildDir = "/tmp/csound-plugin-parser"
+  test("removes color and carriage returns", () => {
     const output =
-      `\u001b[31m${buildDir}/plugin.c:4:2: error: broken\u001b[0m\r\n` +
+      "\u001b[31mplugin.c:4:2: error: broken\u001b[0m\r\n" +
       "1 error generated.\r"
 
-    expect(sanitizeCompilerOutput(output, buildDir)).toBe(
-      "<build>/plugin.c:4:2: error: broken\n1 error generated.",
+    expect(sanitizeCompilerOutput(output)).toBe(
+      "plugin.c:4:2: error: broken\n1 error generated.",
     )
   })
 })

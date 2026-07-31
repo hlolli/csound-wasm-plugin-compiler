@@ -4,7 +4,7 @@ import {
   addOpcodeWasmHeader,
   OPCODE_WASM_BUILD_HEADER,
   OPCODE_WASM_SECTION_NAME,
-} from "../server/wasm-metadata"
+} from "../src/compiler/wasm-metadata"
 
 const minimalWasm = new Uint8Array([
   0x00,
