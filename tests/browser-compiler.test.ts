@@ -1,5 +1,4 @@
 import { resolve } from "node:path"
-import { pathToFileURL } from "node:url"
 
 import {
   beforeAll,
@@ -32,9 +31,13 @@ import {
 setDefaultTimeout(30_000)
 
 const projectRoot = resolve(import.meta.dir, "..")
-const csoundBrowserEntry = pathToFileURL(
-  resolve(projectRoot, "node_modules/@csound/browser/dist/csound.js")
-).href
+const csoundBrowserEntry = resolve(
+  projectRoot,
+  "node_modules/@csound/browser/dist/csound.js"
+)
+const csoundBrowserExport =
+  "const Csound = kd; const libcsound = __lcs__; export { Csound, libcsound }; export default Csound;"
+let libcsoundFactory: typeof import("@csound/browser").libcsound | undefined
 let csoundHeaders: Tree
 
 beforeAll(async () => {
@@ -50,6 +53,27 @@ beforeAll(async () => {
   await initializeCompiler(() => {})
 })
 
+async function loadLibcsound(): Promise<
+  typeof import("@csound/browser").libcsound
+> {
+  if (libcsoundFactory) return libcsoundFactory
+
+  const source = await Bun.file(csoundBrowserEntry).text()
+  if (!source.includes(csoundBrowserExport)) {
+    throw new Error("The pinned Csound browser entry has changed")
+  }
+
+  const executable = source.replace(
+    csoundBrowserExport,
+    "return __lcs__;"
+  )
+  libcsoundFactory = new Function(executable)() as typeof libcsoundFactory
+  if (!libcsoundFactory) {
+    throw new Error("Could not load the Csound test factory")
+  }
+  return libcsoundFactory
+}
+
 async function runPluginToScoreEnd(wasm: ArrayBuffer): Promise<number> {
   Object.defineProperty(globalThis, "window", {
     value: {
@@ -61,9 +85,7 @@ async function runPluginToScoreEnd(wasm: ArrayBuffer): Promise<number> {
   })
 
   try {
-    const { libcsound } = await import(
-      csoundBrowserEntry
-    ) as typeof import("@csound/browser")
+    const libcsound = await loadLibcsound()
     const api = await libcsound({
       withPlugins: [wasm]
     })
