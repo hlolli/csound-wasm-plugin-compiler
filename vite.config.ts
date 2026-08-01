@@ -80,6 +80,11 @@ function demoRoutes(): Plugin {
 export default defineConfig({
   base: "./",
   plugins: [demoRoutes()],
+  optimizeDeps: {
+    // Clang resolves its Wasm and resource archive from import.meta.url.
+    // Prebundling relocates it and can import source-map JSON as JavaScript.
+    exclude: ["@yowasp/clang"]
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,
