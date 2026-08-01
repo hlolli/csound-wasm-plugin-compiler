@@ -12,7 +12,13 @@
   </head>
   <body>
     <header class="tool-bar" aria-label="Csound opcode workbench">
-      <h1 class="wordmark">OPCODE<span>.WASM</span></h1>
+      <div class="tool-bar__identity">
+        <div class="tool-bar__heading">
+          <h1 class="wordmark">OPCODE<span>.WASM</span></h1>
+          <p class="demo-title" id="demo-title" hidden></p>
+        </div>
+        <nav class="demo-nav" id="demo-nav" aria-label="Workbench demos"></nav>
+      </div>
 
       <div class="tool-bar__status">
         <p

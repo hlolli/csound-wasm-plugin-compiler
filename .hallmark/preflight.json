@@ -1,9 +1,9 @@
 {
-  "date": "2026-07-29",
-  "font_stack": null,
-  "palette": null,
-  "motion": "motion-cut",
-  "spacing": null,
-  "framework": "vanilla TypeScript",
-  "source": "empty project"
+  "date": "2026-08-01",
+  "font_stack": "IBM Plex Sans 400/500/700 with JetBrains Mono 400/700",
+  "palette": "Cobalt OKLCH tokens in tokens.css",
+  "motion": "motion-cut with token timings and reduced-motion rules",
+  "spacing": "4 point token scale in tokens.css",
+  "framework": "vanilla TypeScript with Vite",
+  "source": "existing OPCODE.WASM workbench"
 }

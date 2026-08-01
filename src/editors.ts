@@ -21,10 +21,30 @@ import {
   DEFAULT_C_SOURCE
 } from "./examples"
 
-export const C_SOURCE_STORAGE_KEY = "csoundOpcodeWorkbench.cSource.v1"
-export const CPP_SOURCE_STORAGE_KEY = "csoundOpcodeWorkbench.cppSource.v1"
-export const CSD_SOURCE_STORAGE_KEY = "csoundOpcodeWorkbench.csdSource.v1"
-export const SOURCE_LANGUAGE_STORAGE_KEY = "csoundOpcodeWorkbench.sourceLanguage.v1"
+interface EditorStorageKeys {
+  c: string
+  cpp: string
+  csd: string
+  language: string
+}
+
+export function editorStorageKeys(namespace?: string): EditorStorageKeys {
+  const suffix = namespace ? `.${namespace}` : ""
+  const prefix = `csoundOpcodeWorkbench${suffix}`
+  return {
+    c: `${prefix}.cSource.v1`,
+    cpp: `${prefix}.cppSource.v1`,
+    csd: `${prefix}.csdSource.v1`,
+    language: `${prefix}.sourceLanguage.v1`
+  }
+}
+
+const ROOT_STORAGE_KEYS = editorStorageKeys()
+
+export const C_SOURCE_STORAGE_KEY = ROOT_STORAGE_KEYS.c
+export const CPP_SOURCE_STORAGE_KEY = ROOT_STORAGE_KEYS.cpp
+export const CSD_SOURCE_STORAGE_KEY = ROOT_STORAGE_KEYS.csd
+export const SOURCE_LANGUAGE_STORAGE_KEY = ROOT_STORAGE_KEYS.language
 
 export type SourceLanguage = "c" | "cpp"
 
@@ -63,6 +83,8 @@ export interface CreateEditorsOptions {
   onSourceChange?: () => void
   onWorkspaceChange?: () => void
   initialWorkspace?: EditorWorkspace
+  defaultWorkspace?: EditorWorkspace
+  storageNamespace?: string
 }
 
 export interface EditorsController {
@@ -190,13 +212,15 @@ function storeValue(key: string, value: string): void {
   }
 }
 
-function storedLanguage(): SourceLanguage {
+function storedLanguage(
+  key: string,
+  fallback: SourceLanguage
+): SourceLanguage {
   try {
-    return localStorage.getItem(SOURCE_LANGUAGE_STORAGE_KEY) === "cpp"
-      ? "cpp"
-      : "c"
+    const stored = localStorage.getItem(key)
+    return stored === "c" || stored === "cpp" ? stored : fallback
   } catch {
-    return "c"
+    return fallback
   }
 }
 
@@ -204,8 +228,11 @@ export function sourceFileName(language: SourceLanguage): string {
   return language === "cpp" ? "plugin.cpp" : "plugin.c"
 }
 
-function sourceStorageKey(language: SourceLanguage): string {
-  return language === "cpp" ? CPP_SOURCE_STORAGE_KEY : C_SOURCE_STORAGE_KEY
+function sourceStorageKey(
+  language: SourceLanguage,
+  keys: EditorStorageKeys
+): string {
+  return language === "cpp" ? keys.cpp : keys.c
 }
 
 function createPersistListener(
@@ -264,14 +291,24 @@ function commonExtensions(onRun: () => void, darkMode = true) {
 
 export function createEditors(options: CreateEditorsOptions): EditorsController {
   const initialWorkspace = options.initialWorkspace
-  let language = initialWorkspace?.language ?? storedLanguage()
+  const defaultWorkspace = options.defaultWorkspace ?? {
+    c: DEFAULT_C_SOURCE,
+    cpp: DEFAULT_CPP_SOURCE,
+    csd: DEFAULT_CSD_SOURCE,
+    language: "c"
+  }
+  const storageKeys = editorStorageKeys(options.storageNamespace)
+  let language = initialWorkspace?.language ?? storedLanguage(
+    storageKeys.language,
+    defaultWorkspace.language
+  )
   let suppressChangeCallbacks = false
 
   if (initialWorkspace) {
-    storeValue(C_SOURCE_STORAGE_KEY, initialWorkspace.c)
-    storeValue(CPP_SOURCE_STORAGE_KEY, initialWorkspace.cpp)
-    storeValue(CSD_SOURCE_STORAGE_KEY, initialWorkspace.csd)
-    storeValue(SOURCE_LANGUAGE_STORAGE_KEY, initialWorkspace.language)
+    storeValue(storageKeys.c, initialWorkspace.c)
+    storeValue(storageKeys.cpp, initialWorkspace.cpp)
+    storeValue(storageKeys.csd, initialWorkspace.csd)
+    storeValue(storageKeys.language, initialWorkspace.language)
   }
 
   const notifySourceChange = () => {
@@ -284,11 +321,11 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   }
 
   const sourcePersistence = createPersistListener(
-    () => sourceStorageKey(language),
+    () => sourceStorageKey(language, storageKeys),
     notifySourceChange
   )
   const csdPersistence = createPersistListener(
-    CSD_SOURCE_STORAGE_KEY,
+    storageKeys.csd,
     notifyWorkspaceChange
   )
   const sourceExtensions = [
@@ -298,11 +335,11 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   ]
   const sourceStates: Record<SourceLanguage, EditorState> = {
     c: EditorState.create({
-      doc: initialWorkspace?.c ?? storedValue(C_SOURCE_STORAGE_KEY, DEFAULT_C_SOURCE),
+      doc: initialWorkspace?.c ?? storedValue(storageKeys.c, defaultWorkspace.c),
       extensions: sourceExtensions
     }),
     cpp: EditorState.create({
-      doc: initialWorkspace?.cpp ?? storedValue(CPP_SOURCE_STORAGE_KEY, DEFAULT_CPP_SOURCE),
+      doc: initialWorkspace?.cpp ?? storedValue(storageKeys.cpp, defaultWorkspace.cpp),
       extensions: sourceExtensions
     })
   }
@@ -315,7 +352,7 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   const csdView = new EditorView({
     parent: options.csdParent,
     state: EditorState.create({
-      doc: initialWorkspace?.csd ?? storedValue(CSD_SOURCE_STORAGE_KEY, DEFAULT_CSD_SOURCE),
+      doc: initialWorkspace?.csd ?? storedValue(storageKeys.csd, defaultWorkspace.csd),
       extensions: [
         ...commonExtensions(options.onRun, false),
         csoundMode({ fileType: "csd" }),
@@ -415,10 +452,10 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
       suppressChangeCallbacks = false
     }
 
-    storeValue(C_SOURCE_STORAGE_KEY, next.c)
-    storeValue(CPP_SOURCE_STORAGE_KEY, next.cpp)
-    storeValue(CSD_SOURCE_STORAGE_KEY, next.csd)
-    storeValue(SOURCE_LANGUAGE_STORAGE_KEY, next.language)
+    storeValue(storageKeys.c, next.c)
+    storeValue(storageKeys.cpp, next.cpp)
+    storeValue(storageKeys.csd, next.csd)
+    storeValue(storageKeys.language, next.language)
 
     if (
       next.language !== before.language ||
@@ -444,7 +481,7 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
       sourcePersistence.flush(cView.state.doc.toString())
       sourceStates[language] = cView.state
       language = nextLanguage
-      storeValue(SOURCE_LANGUAGE_STORAGE_KEY, language)
+      storeValue(storageKeys.language, language)
       cView.setState(sourceStates[language])
       cView.dispatch(setDiagnostics(cView.state, []))
       options.onSourceChange?.()

@@ -32,6 +32,30 @@ Open <http://127.0.0.1:4173>.
 
 The full app is in `dist`. You can copy that folder to any static host. Asset links are relative, so the app can also live in a path such as `/opcode-wasm/`.
 
+## Demos
+
+The workbench finds demos at build time. Each demo gets a route and a link in the header.
+
+To add one, make a folder under `demos` with:
+
+- One `.c` or `.cpp` plugin file
+- One `.csd` file
+
+For example:
+
+```text
+demos/
+  demo1/
+    wg-piano.c
+    aeolian-harp.csd
+```
+
+This builds `demo1/index.html`. The file names set the short title shown after `OPCODE.WASM`: `WG Piano · Aeolian Harp`.
+
+No list or manifest needs an edit. Use a lower-case folder name made from letters, numbers, and dashes. The build stops with a clear error if a demo has a missing or extra source or CSD file.
+
+Each demo keeps its editor changes in its own browser storage. A shared link still takes priority when opened.
+
 ## Commands
 
 | Command | Use |
@@ -182,6 +206,7 @@ The app uses the AudioWorklet and worker path with `useWorker: true` and `useSAB
 - C source saves in `localStorage`
 - C++ source saves in `localStorage`
 - The CSD saves in `localStorage`
+- Each demo uses its own saved copy
 - The app does not upload source
 - Share writes source to the URL fragment and clipboard
 - The browser does not send URL fragments to the static host

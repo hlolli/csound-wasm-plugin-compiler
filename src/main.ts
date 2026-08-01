@@ -24,6 +24,7 @@ import {
   type EditorWorkspacePatch,
   type SourceLanguage
 } from "./editors"
+import { ACTIVE_DEMO, ACTIVE_DEMO_WORKSPACE, DEMOS } from "./demos"
 import {
   createCsoundRuntime,
   type CsoundRuntimeError,
@@ -96,6 +97,64 @@ const compilerState = requiredElement<HTMLSpanElement>("compiler-state")
 const audioState = requiredElement<HTMLSpanElement>("audio-state")
 const webMcpInfoButton = requiredElement<HTMLButtonElement>("webmcp-info-button")
 const webMcpInfoTooltip = requiredElement<HTMLSpanElement>("webmcp-info-tooltip")
+const demoTitle = requiredElement<HTMLParagraphElement>("demo-title")
+const demoNav = requiredElement<HTMLElement>("demo-nav")
+
+function appRootUrl(): URL {
+  const url = new URL(window.location.href)
+  url.hash = ""
+  url.search = ""
+
+  if (ACTIVE_DEMO) {
+    const segments = url.pathname.split("/")
+    const routeIndex = segments.lastIndexOf(ACTIVE_DEMO.slug)
+    if (routeIndex >= 0) {
+      url.pathname = `${segments.slice(0, routeIndex).join("/")}/`
+    }
+  } else if (url.pathname.endsWith("/index.html")) {
+    url.pathname = url.pathname.slice(0, -"index.html".length)
+  } else if (!url.pathname.endsWith("/")) {
+    url.pathname = `${url.pathname}/`
+  }
+
+  return url
+}
+
+function renderDemoNavigation(): void {
+  const rootUrl = appRootUrl()
+  const links = [
+    {
+      current: ACTIVE_DEMO === undefined,
+      href: rootUrl.href,
+      label: "Workbench"
+    },
+    ...DEMOS.filter((demo) => demo !== ACTIVE_DEMO).map((demo) => ({
+      current: false,
+      href: new URL(`${demo.slug}/`, rootUrl).href,
+      label: demo.title
+    }))
+  ]
+
+  const fragment = document.createDocumentFragment()
+  for (const item of links) {
+    const link = document.createElement("a")
+    link.className = "demo-nav__link"
+    link.dataset.state = item.current ? "active" : "idle"
+    link.href = item.href
+    link.textContent = item.label
+    if (item.current) link.setAttribute("aria-current", "page")
+    fragment.append(link)
+  }
+  demoNav.replaceChildren(fragment)
+
+  if (ACTIVE_DEMO) {
+    demoTitle.hidden = false
+    demoTitle.textContent = ACTIVE_DEMO.title
+    document.title = `${ACTIVE_DEMO.title} · OPCODE.WASM`
+  }
+}
+
+renderDemoNavigation()
 
 let compilerReady = false
 let operationRunning = false
@@ -131,7 +190,9 @@ const editors = createEditors({
   onRun: () => void run(),
   onSourceChange: () => setCompiledPlugin(),
   onWorkspaceChange: handleWorkspaceChange,
-  initialWorkspace
+  initialWorkspace,
+  defaultWorkspace: ACTIVE_DEMO_WORKSPACE,
+  storageNamespace: ACTIVE_DEMO ? `demo.${ACTIVE_DEMO.slug}` : undefined
 })
 
 const runtime = createCsoundRuntime({
@@ -1224,7 +1285,11 @@ window.addEventListener("beforeunload", () => {
 })
 
 renderSourceLanguage(editors.getSources().language)
-renderDiagnostics()
+renderDiagnostics(
+  ACTIVE_DEMO
+    ? `Press Run to build and play ${ACTIVE_DEMO.title}`
+    : undefined
+)
 webMcpInfoTooltip.textContent = "Enable chrome://flags/#enable-webmcp-testing, then relaunch Chrome."
 if (shareLoadError) {
   addDiagnostic({

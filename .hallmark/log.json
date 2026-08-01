@@ -1,5 +1,17 @@
 [
   {
+    "date": "2026-08-01",
+    "macrostructure": "Workbench",
+    "theme": "Cobalt",
+    "enrichment": "none",
+    "brief": "Auto-discovered opcode demos with a WG piano listening route",
+    "nav": "N1",
+    "footer": "Ft2",
+    "tone": "brutalist",
+    "variation": "demo-index + preset-title",
+    "reason": "The demo is a preset state of the same tool, and the user asked to keep its style"
+  },
+  {
     "date": "2026-07-29",
     "macrostructure": "Workbench",
     "theme": "Cobalt",

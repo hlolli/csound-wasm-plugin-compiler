@@ -74,7 +74,11 @@ async function loadLibcsound(): Promise<
   return libcsoundFactory
 }
 
-async function runPluginToScoreEnd(wasm: ArrayBuffer): Promise<number> {
+async function runPluginToScoreEnd(
+  wasm: ArrayBuffer,
+  csdSource = DEFAULT_CSD_SOURCE,
+  maxBlocks = 10_000
+): Promise<number> {
   Object.defineProperty(globalThis, "window", {
     value: {
       atob: globalThis.atob.bind(globalThis),
@@ -90,7 +94,7 @@ async function runPluginToScoreEnd(wasm: ArrayBuffer): Promise<number> {
       withPlugins: [wasm]
     })
     const csound = api.csoundCreate()
-    const csd = DEFAULT_CSD_SOURCE.replace("-odac -d -m128", "-n -d -m0")
+    const csd = csdSource.replace("-odac -d -m128", "-n -d -m0")
 
     try {
       expect(api.csoundCompileCSD(csound, csd)).toBe(0)
@@ -99,7 +103,7 @@ async function runPluginToScoreEnd(wasm: ArrayBuffer): Promise<number> {
       let blocks = 0
       let performResult = 0
 
-      while (performResult === 0 && blocks < 10_000) {
+      while (performResult === 0 && blocks < maxBlocks) {
         performResult = api.csoundPerformKsmps(csound)
         blocks += 1
       }
@@ -176,6 +180,22 @@ describe("browser Clang", () => {
     expect(new TextDecoder().decode(buildHeaders[0])).toBe(
       OPCODE_WASM_BUILD_HEADER
     )
+  })
+
+  test("compiles and plays the WG piano demo to the score end", async () => {
+    const source = await Bun.file(
+      resolve(projectRoot, "demos/demo1/wg-piano.c")
+    ).text()
+    const csd = await Bun.file(
+      resolve(projectRoot, "demos/demo1/aeolian-harp.csd")
+    ).text()
+    const result = await compilePlugin(source, "c", csoundHeaders)
+
+    expect(result.ok).toBe(true)
+    expect(result.wasm).toBeInstanceOf(ArrayBuffer)
+    expect(
+      await runPluginToScoreEnd(result.wasm as ArrayBuffer, csd, 260_000)
+    ).toBeLessThan(260_000)
   })
 
   test("reserves enough loader memory for large static data", async () => {
