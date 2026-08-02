@@ -17,13 +17,4 @@ describe("editor storage keys", () => {
       language: SOURCE_LANGUAGE_STORAGE_KEY
     })
   })
-
-  test("isolates each demo workspace", () => {
-    expect(editorStorageKeys("demo.demo1")).toEqual({
-      c: "csoundOpcodeWorkbench.demo.demo1.cSource.v1",
-      cpp: "csoundOpcodeWorkbench.demo.demo1.cppSource.v1",
-      csd: "csoundOpcodeWorkbench.demo.demo1.csdSource.v1",
-      language: "csoundOpcodeWorkbench.demo.demo1.sourceLanguage.v1"
-    })
-  })
 })

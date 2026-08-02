@@ -28,9 +28,8 @@ interface EditorStorageKeys {
   language: string
 }
 
-export function editorStorageKeys(namespace?: string): EditorStorageKeys {
-  const suffix = namespace ? `.${namespace}` : ""
-  const prefix = `csoundOpcodeWorkbench${suffix}`
+export function editorStorageKeys(): EditorStorageKeys {
+  const prefix = "csoundOpcodeWorkbench"
   return {
     c: `${prefix}.cSource.v1`,
     cpp: `${prefix}.cppSource.v1`,
@@ -84,7 +83,7 @@ export interface CreateEditorsOptions {
   onWorkspaceChange?: () => void
   initialWorkspace?: EditorWorkspace
   defaultWorkspace?: EditorWorkspace
-  storageNamespace?: string
+  persistToLocalStorage?: boolean
 }
 
 export interface EditorsController {
@@ -237,7 +236,8 @@ function sourceStorageKey(
 
 function createPersistListener(
   key: string | (() => string),
-  onChange?: () => void
+  onChange: (() => void) | undefined,
+  persistToLocalStorage: boolean
 ) {
   let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -248,6 +248,7 @@ function createPersistListener(
   const extension = EditorView.updateListener.of((update) => {
     if (!update.docChanged) return
     onChange?.()
+    if (!persistToLocalStorage) return
 
     if (timer !== undefined) clearTimeout(timer)
     timer = setTimeout(() => {
@@ -258,6 +259,7 @@ function createPersistListener(
   return {
     extension,
     flush: (value: string) => {
+      if (!persistToLocalStorage) return
       if (timer !== undefined) {
         clearTimeout(timer)
         timer = undefined
@@ -297,14 +299,16 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
     csd: DEFAULT_CSD_SOURCE,
     language: "c"
   }
-  const storageKeys = editorStorageKeys(options.storageNamespace)
-  let language = initialWorkspace?.language ?? storedLanguage(
-    storageKeys.language,
-    defaultWorkspace.language
+  const persistToLocalStorage = options.persistToLocalStorage ?? true
+  const storageKeys = editorStorageKeys()
+  let language = initialWorkspace?.language ?? (
+    persistToLocalStorage
+      ? storedLanguage(storageKeys.language, defaultWorkspace.language)
+      : defaultWorkspace.language
   )
   let suppressChangeCallbacks = false
 
-  if (initialWorkspace) {
+  if (initialWorkspace && persistToLocalStorage) {
     storeValue(storageKeys.c, initialWorkspace.c)
     storeValue(storageKeys.cpp, initialWorkspace.cpp)
     storeValue(storageKeys.csd, initialWorkspace.csd)
@@ -322,11 +326,13 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
 
   const sourcePersistence = createPersistListener(
     () => sourceStorageKey(language, storageKeys),
-    notifySourceChange
+    notifySourceChange,
+    persistToLocalStorage
   )
   const csdPersistence = createPersistListener(
     storageKeys.csd,
-    notifyWorkspaceChange
+    notifyWorkspaceChange,
+    persistToLocalStorage
   )
   const sourceExtensions = [
     ...commonExtensions(options.onRun),
@@ -335,11 +341,15 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   ]
   const sourceStates: Record<SourceLanguage, EditorState> = {
     c: EditorState.create({
-      doc: initialWorkspace?.c ?? storedValue(storageKeys.c, defaultWorkspace.c),
+      doc: initialWorkspace?.c ?? (persistToLocalStorage
+        ? storedValue(storageKeys.c, defaultWorkspace.c)
+        : defaultWorkspace.c),
       extensions: sourceExtensions
     }),
     cpp: EditorState.create({
-      doc: initialWorkspace?.cpp ?? storedValue(storageKeys.cpp, defaultWorkspace.cpp),
+      doc: initialWorkspace?.cpp ?? (persistToLocalStorage
+        ? storedValue(storageKeys.cpp, defaultWorkspace.cpp)
+        : defaultWorkspace.cpp),
       extensions: sourceExtensions
     })
   }
@@ -352,7 +362,9 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
   const csdView = new EditorView({
     parent: options.csdParent,
     state: EditorState.create({
-      doc: initialWorkspace?.csd ?? storedValue(storageKeys.csd, defaultWorkspace.csd),
+      doc: initialWorkspace?.csd ?? (persistToLocalStorage
+        ? storedValue(storageKeys.csd, defaultWorkspace.csd)
+        : defaultWorkspace.csd),
       extensions: [
         ...commonExtensions(options.onRun, false),
         csoundMode({ fileType: "csd" }),
@@ -452,10 +464,12 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
       suppressChangeCallbacks = false
     }
 
-    storeValue(storageKeys.c, next.c)
-    storeValue(storageKeys.cpp, next.cpp)
-    storeValue(storageKeys.csd, next.csd)
-    storeValue(storageKeys.language, next.language)
+    if (persistToLocalStorage) {
+      storeValue(storageKeys.c, next.c)
+      storeValue(storageKeys.cpp, next.cpp)
+      storeValue(storageKeys.csd, next.csd)
+      storeValue(storageKeys.language, next.language)
+    }
 
     if (
       next.language !== before.language ||
@@ -481,7 +495,9 @@ export function createEditors(options: CreateEditorsOptions): EditorsController 
       sourcePersistence.flush(cView.state.doc.toString())
       sourceStates[language] = cView.state
       language = nextLanguage
-      storeValue(storageKeys.language, language)
+      if (persistToLocalStorage) {
+        storeValue(storageKeys.language, language)
+      }
       cView.setState(sourceStates[language])
       cView.dispatch(setDiagnostics(cView.state, []))
       options.onSourceChange?.()

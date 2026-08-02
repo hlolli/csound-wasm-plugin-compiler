@@ -192,7 +192,7 @@ const editors = createEditors({
   onWorkspaceChange: handleWorkspaceChange,
   initialWorkspace,
   defaultWorkspace: ACTIVE_DEMO_WORKSPACE,
-  storageNamespace: ACTIVE_DEMO ? `demo.${ACTIVE_DEMO.slug}` : undefined
+  persistToLocalStorage: ACTIVE_DEMO === undefined
 })
 
 const runtime = createCsoundRuntime({

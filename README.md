@@ -54,7 +54,9 @@ This builds `demo1/index.html`. The file names set the short title shown after `
 
 No list or manifest needs an edit. Use a lower-case folder name made from letters, numbers, and dashes. The build stops with a clear error if a demo has a missing or extra source or CSD file.
 
-Each demo keeps its editor changes in its own browser storage. A shared link still takes priority when opened.
+The main playground keeps editor changes in browser storage. Demo routes do not:
+each visit loads the current files under `demos`. A shared link still takes
+priority when opened.
 
 ## Commands
 
