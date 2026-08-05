@@ -58,6 +58,16 @@ The main playground keeps editor changes in browser storage. Demo routes do not:
 each visit loads the current files under `demos`. A shared link still takes
 priority when opened.
 
+`demos/demo1/wg-piano.c` is a byte-for-byte copy of
+[`hlolli_wg_piano.c`](https://github.com/hlolli/hlolli_wg_piano/blob/main/hlolli_wg_piano.c).
+Make model and profile changes in that repository, run its native checks, then
+replace the demo copy and run:
+
+```sh
+bun test tests/browser-compiler.test.ts -t \
+  "compiles and plays the WG piano demo to the score end"
+```
+
 ## Commands
 
 | Command | Use |
@@ -208,7 +218,7 @@ The app uses the AudioWorklet and worker path with `useWorker: true` and `useSAB
 - C source saves in `localStorage`
 - C++ source saves in `localStorage`
 - The CSD saves in `localStorage`
-- Each demo uses its own saved copy
+- Demo routes always load their checked-in source and CSD
 - The app does not upload source
 - Share writes source to the URL fragment and clipboard
 - The browser does not send URL fragments to the static host
