@@ -39,11 +39,12 @@
 #define WG_MAX_BODY_MODES 64
 #define WG_MAX_KEYS 97
 #define WG_SYMPATHETIC_PARTIALS 3U
+#define WG_SEND_LANES 8U
 #define WG_MAX_SYMPATHETIC_MODES \
   (WG_MAX_KEYS * WG_SYMPATHETIC_PARTIALS)
 #define WG_PROFILE_SCHEMA_VERSION 3U
 
-#define WG_PIANO_MANAGER_NAME "::hlolli_wg_piano::manager_v5::"
+#define WG_PIANO_MANAGER_NAME "::hlolli_wg_piano::manager_v6::"
 
 #define WG_PI 3.14159265358979323846264338327950288
 #define WG_TWO_PI 6.28318530717958647692528676655900576
@@ -675,6 +676,7 @@ typedef struct {
   int32_t piano_handle;
   uint64_t piano_voice_serial;
   uint32_t piano_key;
+  uint32_t piano_send_lane;
   int32_t piano_key_down;
 } HLOLLI_WG_PIANO;
 
@@ -692,17 +694,21 @@ struct WG_PIANO_STATE_ {
   int32_t render_epoch_valid;
   uint64_t control_epoch;
   int32_t control_epoch_valid;
-  void *send_lock;
+  void *state_lock;
+  void *send_lock[2][WG_SEND_LANES];
   uint64_t voice_serial;
   struct WG_PIANO_STATE_ *next;
 
   MYFLT *send_memory;
-  MYFLT *send_left[2];
-  MYFLT *send_right[2];
-  MYFLT *body_mode_send[2];
+  MYFLT *send_left[2][WG_SEND_LANES];
+  MYFLT *send_right[2][WG_SEND_LANES];
+  MYFLT *body_mode_send[2][WG_SEND_LANES];
+  MYFLT *render_send_left;
+  MYFLT *render_send_right;
+  MYFLT *render_body_mode_send;
   uint32_t send_ksmps;
-  uint64_t send_epoch[2];
-  int32_t send_epoch_valid[2];
+  uint64_t send_epoch[2][WG_SEND_LANES];
+  int32_t send_epoch_valid[2][WG_SEND_LANES];
   uint32_t held_keys[WG_MAX_KEYS];
   uint32_t held_snapshot[2][WG_MAX_KEYS];
   uint32_t rendered_held_keys[WG_MAX_KEYS];
@@ -723,6 +729,8 @@ struct WG_PIANO_STATE_ {
   double sample_rate;
   double body;
   double pedal;
+  double damper_presence_sum;
+  double damper_open_mean;
 
   double body_mode_cos[WG_MAX_BODY_MODES];
   double body_mode_sin[WG_MAX_BODY_MODES];
@@ -737,6 +745,16 @@ struct WG_PIANO_STATE_ {
   double sympathetic_input_side[WG_MAX_SYMPATHETIC_MODES];
   double sympathetic_loss_closed[WG_MAX_SYMPATHETIC_MODES];
   double sympathetic_loss_open[WG_MAX_SYMPATHETIC_MODES];
+  double sympathetic_radius_closed[WG_MAX_SYMPATHETIC_MODES];
+  double sympathetic_radius_open[WG_MAX_SYMPATHETIC_MODES];
+  double sympathetic_coupling_base[WG_MAX_SYMPATHETIC_MODES];
+  double sympathetic_radius[WG_MAX_SYMPATHETIC_MODES];
+  double sympathetic_input_gain[WG_MAX_SYMPATHETIC_MODES];
+  double sympathetic_contact[WG_MAX_KEYS];
+  uint16_t sympathetic_active_modes[WG_MAX_SYMPATHETIC_MODES];
+  uint32_t sympathetic_active_count;
+  uint64_t sympathetic_active_epoch;
+  int32_t sympathetic_active_epoch_valid;
   double sympathetic_level[WG_MAX_SYMPATHETIC_MODES];
   double sympathetic_left[WG_MAX_SYMPATHETIC_MODES];
   double sympathetic_right[WG_MAX_SYMPATHETIC_MODES];
@@ -1004,6 +1022,34 @@ static int32_t wg_profile_is_valid(const WG_PIANO_PROFILE *profile)
   return 1;
 }
 
+static int32_t wg_profile_registry_is_valid(void)
+{
+  const uint32_t count = (uint32_t)(sizeof(wg_piano_profiles) /
+                                    sizeof(wg_piano_profiles[0]));
+  int32_t default_found = 0;
+  uint32_t index;
+
+  if (count == 0U || wg_default_piano_profile == NULL) {
+    return 0;
+  }
+  for (index = 0U; index < count; index++) {
+    uint32_t earlier;
+    const WG_PIANO_PROFILE *profile = wg_piano_profiles[index];
+    if (!wg_profile_is_valid(profile)) {
+      return 0;
+    }
+    if (profile == wg_default_piano_profile) {
+      default_found = 1;
+    }
+    for (earlier = 0U; earlier < index; earlier++) {
+      if (strcmp(profile->id, wg_piano_profiles[earlier]->id) == 0) {
+        return 0;
+      }
+    }
+  }
+  return default_found;
+}
+
 static const WG_KEY_PROFILE *wg_profile_key(
     const WG_PIANO_PROFILE *profile, uint32_t key)
 {
@@ -1034,12 +1080,22 @@ static double wg_key_damper_target(const WG_KEY_PROFILE *key,
   return key_down ? 0.0 : key->damper_presence * contact;
 }
 
+static double wg_smooth_damper_contact_amounts(double current, double target,
+                                               double lift_amount,
+                                               double land_amount)
+{
+  const double amount = target < current ? lift_amount : land_amount;
+  const double result = current + amount * (target - current);
+  return fabs(target - result) < 1.0e-10 ? target : result;
+}
+
 static double wg_smooth_damper_contact(double current, double target,
                                        double seconds)
 {
-  const double time = target < current ? 0.008 : 0.022;
-  const double amount = 1.0 - exp(-seconds / time);
-  return current + amount * (target - current);
+  return wg_smooth_damper_contact_amounts(
+      current, target,
+      1.0 - exp(-seconds / 0.008),
+      1.0 - exp(-seconds / 0.022));
 }
 
 static double wg_frequency_to_midi(double frequency)
@@ -1564,12 +1620,21 @@ static int32_t wg_piano_manager_reset(CSOUND *csound, void *user_data)
   manager = *slot;
   state = manager->first;
   while (state != NULL) {
+    uint32_t send_lane;
+    uint32_t send_slot;
     WG_PIANO_STATE *next = state->next;
     if (state->resonance_lock != NULL) {
       csound->DestroyMutex(state->resonance_lock);
     }
-    if (state->send_lock != NULL) {
-      csound->DestroyMutex(state->send_lock);
+    if (state->state_lock != NULL) {
+      csound->DestroyMutex(state->state_lock);
+    }
+    for (send_slot = 0U; send_slot < 2U; send_slot++) {
+      for (send_lane = 0U; send_lane < WG_SEND_LANES; send_lane++) {
+        if (state->send_lock[send_slot][send_lane] != NULL) {
+          csound->DestroyMutex(state->send_lock[send_slot][send_lane]);
+        }
+      }
     }
     csound->Free(csound, state->memory);
     csound->Free(csound, state->send_memory);
@@ -1595,6 +1660,9 @@ static WG_PIANO_MANAGER *wg_get_piano_manager(CSOUND *csound)
 
   if (slot != NULL && *slot != NULL) {
     return *slot;
+  }
+  if (!wg_profile_registry_is_valid()) {
+    return NULL;
   }
   if (slot == NULL &&
       csound->CreateGlobalVariable(csound, WG_PIANO_MANAGER_NAME,
@@ -1666,9 +1734,13 @@ static WG_PIANO_STATE *wg_allocate_piano_state(CSOUND *csound,
                                                 const WG_PIANO_PROFILE *profile)
 {
   WG_PIANO_STATE *state;
+  MYFLT *send_memory;
   size_t samples;
+  int32_t locks_ok;
+  uint32_t send_lane;
+  uint32_t send_slot;
 
-  if (ksmps == 0U || !wg_profile_is_valid(profile)) {
+  if (ksmps == 0U || profile == NULL) {
     return NULL;
   }
   state = (WG_PIANO_STATE *)csound->Calloc(csound,
@@ -1685,31 +1757,59 @@ static WG_PIANO_STATE *wg_allocate_piano_state(CSOUND *csound,
   }
   state->send_ksmps = ksmps;
   state->resonance_lock = csound->Create_Mutex(0);
-  state->send_lock = csound->Create_Mutex(0);
-  samples = (4U + 2U * (size_t)profile->body_mode_count) *
-            (size_t)ksmps;
+  state->state_lock = csound->Create_Mutex(0);
+  for (send_slot = 0U; send_slot < 2U; send_slot++) {
+    for (send_lane = 0U; send_lane < WG_SEND_LANES; send_lane++) {
+      state->send_lock[send_slot][send_lane] =
+          csound->Create_Mutex(0);
+    }
+  }
+  samples = (2U * WG_SEND_LANES + 1U) *
+            (2U + (size_t)profile->body_mode_count) * (size_t)ksmps;
   state->send_memory = (MYFLT *)csound->Calloc(
       csound, samples * sizeof(MYFLT));
-  if ((WG_REQUIRE_MUTEXES &&
-       (state->resonance_lock == NULL || state->send_lock == NULL)) ||
-      state->send_memory == NULL) {
+  locks_ok = state->resonance_lock != NULL && state->state_lock != NULL;
+  for (send_slot = 0U; send_slot < 2U; send_slot++) {
+    for (send_lane = 0U; send_lane < WG_SEND_LANES; send_lane++) {
+      if (state->send_lock[send_slot][send_lane] == NULL) {
+        locks_ok = 0;
+      }
+    }
+  }
+  if ((WG_REQUIRE_MUTEXES && !locks_ok) || state->send_memory == NULL) {
     if (state->resonance_lock != NULL) {
       csound->DestroyMutex(state->resonance_lock);
     }
-    if (state->send_lock != NULL) {
-      csound->DestroyMutex(state->send_lock);
+    if (state->state_lock != NULL) {
+      csound->DestroyMutex(state->state_lock);
+    }
+    for (send_slot = 0U; send_slot < 2U; send_slot++) {
+      for (send_lane = 0U; send_lane < WG_SEND_LANES; send_lane++) {
+        if (state->send_lock[send_slot][send_lane] != NULL) {
+          csound->DestroyMutex(state->send_lock[send_slot][send_lane]);
+        }
+      }
     }
     csound->Free(csound, state->send_memory);
     csound->Free(csound, state);
     return NULL;
   }
-  state->send_left[0] = state->send_memory;
-  state->send_right[0] = state->send_left[0] + ksmps;
-  state->send_left[1] = state->send_right[0] + ksmps;
-  state->send_right[1] = state->send_left[1] + ksmps;
-  state->body_mode_send[0] = state->send_right[1] + ksmps;
-  state->body_mode_send[1] = state->body_mode_send[0] +
-      (size_t)profile->body_mode_count * ksmps;
+  send_memory = state->send_memory;
+  for (send_slot = 0U; send_slot < 2U; send_slot++) {
+    for (send_lane = 0U; send_lane < WG_SEND_LANES; send_lane++) {
+      state->send_left[send_slot][send_lane] = send_memory;
+      send_memory += ksmps;
+      state->send_right[send_slot][send_lane] = send_memory;
+      send_memory += ksmps;
+      state->body_mode_send[send_slot][send_lane] = send_memory;
+      send_memory += (size_t)profile->body_mode_count * ksmps;
+    }
+  }
+  state->render_send_left = send_memory;
+  send_memory += ksmps;
+  state->render_send_right = send_memory;
+  send_memory += ksmps;
+  state->render_body_mode_send = send_memory;
   state->idle = 1;
   wg_initialize_piano_profile(state);
   return state;
@@ -1770,10 +1870,6 @@ static int32_t wg_create_piano(CSOUND *csound, OPDS *h, MYFLT *out_handle,
   const uint32_t engine_ksmps = wg_engine_ksmps(csound);
   int32_t handle;
 
-  if (UNLIKELY(!wg_profile_is_valid(profile))) {
-    return csound->InitError(
-        csound, "hlolli_wg_piano_create: invalid piano profile data\n");
-  }
   manager = wg_get_piano_manager(csound);
   if (UNLIKELY(manager == NULL)) {
     return csound->InitError(
@@ -1820,10 +1916,16 @@ static int32_t hlolli_wg_piano_create_named_init(
     CSOUND *csound, HLOLLI_WG_PIANO_CREATE_NAMED *p)
 {
   const char *name = p->profile_name != NULL &&
-                             p->profile_name->data != NULL
-                         ? p->profile_name->data
-                         : "";
-  const WG_PIANO_PROFILE *profile = wg_find_profile(name);
+                              p->profile_name->data != NULL
+                          ? p->profile_name->data
+                          : "";
+  const WG_PIANO_PROFILE *profile;
+
+  if (UNLIKELY(wg_get_piano_manager(csound) == NULL)) {
+    return csound->InitError(
+        csound, "hlolli_wg_piano_create: cannot initialize piano profiles\n");
+  }
+  profile = wg_find_profile(name);
 
   if (UNLIKELY(profile == NULL)) {
     return csound->InitError(
@@ -1833,21 +1935,61 @@ static int32_t hlolli_wg_piano_create_named_init(
   return wg_create_piano(csound, &p->h, p->handle, profile);
 }
 
+/* The two snapshots hold the two most recent key-change epochs. The current
+   epoch may already contain changes when a renderer asks for the prior one. */
+static int32_t wg_find_held_snapshot_locked(const WG_PIANO_STATE *state,
+                                            uint64_t wanted)
+{
+  int32_t best = -1;
+  uint32_t slot;
+
+  for (slot = 0U; slot < 2U; slot++) {
+    if (state->held_epoch_valid[slot] &&
+        state->held_epoch[slot] <= wanted &&
+        (best < 0 || state->held_epoch[slot] >
+                       state->held_epoch[(uint32_t)best])) {
+      best = (int32_t)slot;
+    }
+  }
+  return best;
+}
+
+static int32_t wg_copy_held_snapshot_locked(const WG_PIANO_STATE *state,
+                                            uint64_t wanted,
+                                            uint32_t *destination)
+{
+  const int32_t slot = wg_find_held_snapshot_locked(state, wanted);
+  if (slot < 0) {
+    return 0;
+  }
+  memcpy(destination, state->held_snapshot[(uint32_t)slot],
+         sizeof(state->held_snapshot[0]));
+  return 1;
+}
+
 static void wg_set_note_key_down(CSOUND *csound,
                                  HLOLLI_WG_PIANO *p,
                                  int32_t key_down)
 {
   const uint64_t epoch = csound->GetEngineKcounter(csound);
-  const uint32_t slot = (uint32_t)(epoch & 1U);
+  uint32_t slot;
   uint32_t *count;
   uint32_t *snapshot_count;
 
   if (p->piano == NULL || key_down == p->piano_key_down) {
     return;
   }
-  csound->LockMutex(p->piano->send_lock);
-  if (!p->piano->held_epoch_valid[slot] ||
-      p->piano->held_epoch[slot] != epoch) {
+  csound->LockMutex(p->piano->state_lock);
+  if (p->piano->held_epoch_valid[0] &&
+      p->piano->held_epoch[0] == epoch) {
+    slot = 0U;
+  } else if (p->piano->held_epoch_valid[1] &&
+             p->piano->held_epoch[1] == epoch) {
+    slot = 1U;
+  } else {
+    slot = !p->piano->held_epoch_valid[0] ? 0U :
+        (!p->piano->held_epoch_valid[1] ? 1U :
+         (p->piano->held_epoch[0] <= p->piano->held_epoch[1] ? 0U : 1U));
     memcpy(p->piano->held_snapshot[slot], p->piano->held_keys,
            sizeof(p->piano->held_keys));
     p->piano->held_epoch[slot] = epoch;
@@ -1866,7 +2008,7 @@ static void wg_set_note_key_down(CSOUND *csound,
       (*snapshot_count)--;
     }
   }
-  csound->UnlockMutex(p->piano->send_lock);
+  csound->UnlockMutex(p->piano->state_lock);
   p->piano_key_down = key_down;
 }
 
@@ -1884,19 +2026,20 @@ static double wg_note_damper_contact(CSOUND *csound,
   }
   if (p->piano != NULL && epoch > 0U) {
     const uint64_t wanted = epoch - 1U;
-    const uint32_t slot = (uint32_t)(wanted & 1U);
-    csound->LockMutex(p->piano->send_lock);
-    if (p->piano->held_epoch_valid[slot] &&
-        p->piano->held_epoch[slot] == wanted &&
-        p->piano->held_snapshot[slot][p->piano_key] > 0U) {
+    int32_t held_slot;
+    const uint32_t damper_slot = (uint32_t)(wanted & 1U);
+    csound->LockMutex(p->piano->state_lock);
+    held_slot = wg_find_held_snapshot_locked(p->piano, wanted);
+    if (held_slot >= 0 &&
+        p->piano->held_snapshot[(uint32_t)held_slot][p->piano_key] > 0U) {
       contact = 0.0;
       found = 1;
-    } else if (p->piano->damper_epoch_valid[slot] &&
-        p->piano->damper_epoch[slot] == wanted) {
-      contact = p->piano->damper_snapshot[slot][p->piano_key];
+    } else if (p->piano->damper_epoch_valid[damper_slot] &&
+        p->piano->damper_epoch[damper_slot] == wanted) {
+      contact = p->piano->damper_snapshot[damper_slot][p->piano_key];
       found = 1;
     }
-    csound->UnlockMutex(p->piano->send_lock);
+    csound->UnlockMutex(p->piano->state_lock);
   }
   if (found) {
     p->damper_contact = wg_clamp(contact, 0.0, 1.0);
@@ -1919,6 +2062,7 @@ static void wg_commit_piano_send(CSOUND *csound,
   const double *body_send;
   const uint64_t epoch = csound->GetEngineKcounter(csound);
   const uint32_t slot = (uint32_t)(epoch & 1U);
+  const uint32_t lane = p->piano_send_lane;
   const uint32_t body_mode_count = state != NULL
       ? state->profile->body_mode_count : 0U;
   const double *body_coupling = state != NULL
@@ -1933,23 +2077,24 @@ static void wg_commit_piano_send(CSOUND *csound,
   }
   body_send = &((double *)p->memory.auxp)[
       (size_t)p->memory.size / sizeof(double) - state->send_ksmps];
-  csound->LockMutex(state->send_lock);
-  if (!state->send_epoch_valid[slot] || state->send_epoch[slot] != epoch) {
-    memset(state->send_left[slot], 0,
+  csound->LockMutex(state->send_lock[slot][lane]);
+  if (!state->send_epoch_valid[slot][lane] ||
+      state->send_epoch[slot][lane] != epoch) {
+    memset(state->send_left[slot][lane], 0,
            state->send_ksmps * sizeof(MYFLT));
-    memset(state->send_right[slot], 0,
+    memset(state->send_right[slot][lane], 0,
            state->send_ksmps * sizeof(MYFLT));
-    memset(state->body_mode_send[slot], 0,
+    memset(state->body_mode_send[slot][lane], 0,
            (size_t)body_mode_count * state->send_ksmps * sizeof(MYFLT));
-    state->send_epoch[slot] = epoch;
-    state->send_epoch_valid[slot] = 1;
+    state->send_epoch[slot][lane] = epoch;
+    state->send_epoch_valid[slot][lane] = 1;
   }
   for (sample = offset; sample < limit; sample++) {
-    state->send_left[slot][sample] += p->out_left[sample];
-    state->send_right[slot][sample] += p->out_right[sample];
+    state->send_left[slot][lane][sample] += p->out_left[sample];
+    state->send_right[slot][lane][sample] += p->out_right[sample];
   }
   for (mode = 0U; mode < body_mode_count; mode++) {
-    MYFLT *mode_send = &state->body_mode_send[slot][
+    MYFLT *mode_send = &state->body_mode_send[slot][lane][
         (size_t)mode * state->send_ksmps];
     const double scale =
         WG_BODY_COUPLING_TRIM * body_coupling[mode];
@@ -1957,7 +2102,7 @@ static void wg_commit_piano_send(CSOUND *csound,
       mode_send[sample] += (MYFLT)(scale * body_send[sample]);
     }
   }
-  csound->UnlockMutex(state->send_lock);
+  csound->UnlockMutex(state->send_lock[slot][lane]);
 }
 
 static int32_t hlolli_wg_piano_deinit(CSOUND *csound,
@@ -2036,14 +2181,21 @@ static int32_t hlolli_wg_piano_init(CSOUND *csound, HLOLLI_WG_PIANO *p)
   p->piano_handle = 0;
   p->piano_voice_serial = 0U;
   p->piano_key = 0U;
+  p->piano_send_lane = 0U;
   p->piano_key_down = 0;
-  p->profile = wg_default_profile();
-  p->key_profile = &p->profile->default_key;
+  p->profile = NULL;
+  p->key_profile = NULL;
   if (!(p->sample_rate > 1000.0) || p->sample_rate > 768000.0 ||
       !isfinite(p->sample_rate)) {
     return csound->InitError(csound,
                              "hlolli_wg_piano: invalid sample rate\n");
   }
+  if (UNLIKELY(wg_get_piano_manager(csound) == NULL)) {
+    return csound->InitError(
+        csound, "hlolli_wg_piano: cannot initialize piano profiles\n");
+  }
+  p->profile = wg_default_profile();
+  p->key_profile = &p->profile->default_key;
 
   initial_frequency = wg_clamp(wg_input(p->kfrequency, 440.0), 20.0,
                                0.45 * p->sample_rate);
@@ -2067,10 +2219,6 @@ static int32_t hlolli_wg_piano_init(CSOUND *csound, HLOLLI_WG_PIANO *p)
     }
     p->piano_handle = handle;
     p->profile = p->piano->profile;
-  }
-  if (UNLIKELY(!wg_profile_is_valid(p->profile))) {
-    return csound->InitError(
-        csound, "hlolli_wg_piano: invalid piano profile data\n");
   }
   for (index = 0U; index < WG_STRINGS; index++) {
     p->profile_string_pan[index] = p->profile->strings[index].pan;
@@ -2141,10 +2289,12 @@ static int32_t hlolli_wg_piano_init(CSOUND *csound, HLOLLI_WG_PIANO *p)
     p->key_profile = wg_profile_key(p->profile, p->piano_key);
     p->profile_radiation_scale = p->key_profile->radiation_scale;
     if (p->piano != NULL) {
-      csound->LockMutex(p->piano->send_lock);
+      csound->LockMutex(p->piano->state_lock);
       p->piano->voice_serial++;
       p->piano_voice_serial = p->piano->voice_serial;
-      csound->UnlockMutex(p->piano->send_lock);
+      p->piano_send_lane = (uint32_t)(
+          p->piano_voice_serial % WG_SEND_LANES);
+      csound->UnlockMutex(p->piano->state_lock);
     }
   }
   p->frequency = initial_frequency;
@@ -3282,6 +3432,47 @@ static void wg_resonance_clear(WG_PIANO_STATE *p)
   p->idle = 1;
 }
 
+static void wg_update_sympathetic_key(WG_PIANO_STATE *p,
+                                      uint32_t key_index)
+{
+  const WG_KEY_PROFILE *key_profile;
+  double contact;
+  uint32_t partial;
+
+  if (key_index >= p->profile->sympathetic_mode_count) {
+    return;
+  }
+  contact = wg_clamp(p->damper_contact[key_index], 0.0, 1.0);
+  if (p->sympathetic_contact[key_index] == contact) {
+    return;
+  }
+  key_profile = wg_profile_key(p->profile, key_index);
+  for (partial = 0U; partial < WG_SYMPATHETIC_PARTIALS; partial++) {
+    const uint32_t mode = key_index * WG_SYMPATHETIC_PARTIALS + partial;
+    const double loss = p->sympathetic_loss_open[mode] + contact *
+        (p->sympathetic_loss_closed[mode] -
+         p->sympathetic_loss_open[mode]);
+    double radius;
+    double coupling;
+    double drive;
+
+    if (contact <= 0.0) {
+      radius = p->sympathetic_radius_open[mode];
+    } else if (contact >= 1.0) {
+      radius = p->sympathetic_radius_closed[mode];
+    } else {
+      radius = wg_clamp(exp(-loss / p->sample_rate), 0.0, 0.9999995);
+    }
+    coupling = p->sympathetic_coupling_base[mode] *
+        pow(fmax(1.0e-12, 1.0 - radius), 0.25);
+    drive = 0.060 * (1.0 - contact) *
+        p->sympathetic_level[mode] * key_profile->sympathetic_scale;
+    p->sympathetic_radius[mode] = radius;
+    p->sympathetic_input_gain[mode] = 2.0 * coupling * drive;
+  }
+  p->sympathetic_contact[key_index] = contact;
+}
+
 static int32_t wg_resonance_state_init(
     CSOUND *csound, OPDS *h, WG_PIANO_STATE *p,
     const MYFLT *kbody, const MYFLT *kpedal)
@@ -3338,14 +3529,22 @@ static int32_t wg_resonance_state_init(
   p->pedal_previous_target = p->pedal;
   p->pedal_down_latched = p->pedal >= 0.75;
 
-  csound->LockMutex(p->send_lock);
+  p->damper_presence_sum = 0.0;
+  p->damper_open_mean = 0.0;
+  csound->LockMutex(p->state_lock);
   for (index = 0U; index < p->profile->key_count; index++) {
     const WG_KEY_PROFILE *key_profile =
         wg_profile_key(p->profile, index);
     p->damper_contact[index] = wg_key_damper_target(
-        key_profile, p->pedal, p->held_keys[index] > 0U);
+        key_profile, p->pedal, p->rendered_held_keys[index] > 0U);
+    p->damper_presence_sum += key_profile->damper_presence;
+    p->damper_open_mean += fmax(
+        0.0, key_profile->damper_presence - p->damper_contact[index]);
   }
-  csound->UnlockMutex(p->send_lock);
+  csound->UnlockMutex(p->state_lock);
+  p->damper_open_mean = p->damper_presence_sum > 1.0e-12
+      ? wg_clamp(p->damper_open_mean / p->damper_presence_sum, 0.0, 1.0)
+      : 0.0;
 
   for (index = 0U; index < p->profile->body_mode_count; index++) {
     const WG_BODY_MODE_PROFILE *mode = &p->profile->body_modes[index];
@@ -3410,6 +3609,21 @@ static int32_t wg_resonance_state_init(
     p->sympathetic_input_side[index] = -0.28 * pan;
     p->sympathetic_loss_closed[index] = WG_LN_1000 / t60_closed;
     p->sympathetic_loss_open[index] = WG_LN_1000 / t60_open;
+    {
+      const double radius_closed = exp(
+          -p->sympathetic_loss_closed[index] / p->sample_rate);
+      p->sympathetic_radius_closed[index] = wg_clamp(
+          radius_closed, 0.0, 0.9999995);
+      p->sympathetic_coupling_base[index] = pow(
+          fmax(1.0e-12, 1.0 - radius_closed), 0.75);
+    }
+    p->sympathetic_radius_open[index] = wg_clamp(
+        exp(-p->sympathetic_loss_open[index] / p->sample_rate),
+        0.0, 0.9999995);
+  }
+  for (index = 0U; index < p->profile->sympathetic_mode_count; index++) {
+    p->sympathetic_contact[index] = -1.0;
+    wg_update_sympathetic_key(p, index);
   }
 
   memset(p->body_mode_y1, 0, sizeof(p->body_mode_y1));
@@ -3442,20 +3656,18 @@ static int32_t wg_resonance_process(
   const uint32_t sympathetic_mode_count =
       p->profile->sympathetic_mode_count * WG_SYMPATHETIC_PARTIALS;
   const uint32_t ksmps = h->insdshead->ksmps;
+  const uint64_t epoch = csound->GetEngineKcounter(csound);
   uint32_t offset = h->insdshead->ksmps_offset;
   uint32_t early = h->insdshead->ksmps_no_end;
   uint32_t limit = ksmps - early;
   double body_radius[WG_MAX_BODY_MODES];
-  double sympathetic_radius[WG_MAX_SYMPATHETIC_MODES];
-  double sympathetic_coupling[WG_MAX_SYMPATHETIC_MODES];
-  double sympathetic_drive[WG_MAX_SYMPATHETIC_MODES];
   double fdn_feedback[RESONANCE_BODY_LINES];
   double fdn_lowpass[RESONANCE_BODY_LINES];
   double body_target;
   double pedal_target;
   double body_smoothing;
   double pedal_smoothing;
-  double damper_open_mean = 0.0;
+  double damper_open_mean;
   double fdn_t60;
   double fdn_cutoff;
   double input_dc_coefficient;
@@ -3468,6 +3680,7 @@ static int32_t wg_resonance_process(
   double block_level = 0.0;
   int32_t input_active = 0;
   int32_t control_update = 0;
+  uint32_t active;
   uint32_t index;
   uint32_t sample;
 
@@ -3483,7 +3696,6 @@ static int32_t wg_resonance_process(
   body_target = wg_clamp(wg_input(kbody, 0.72), 0.0, 1.0);
   pedal_target = wg_clamp(wg_input(kpedal, 0.0), 0.0, 1.0);
   {
-    const uint64_t epoch = csound->GetEngineKcounter(csound);
     if (!p->control_epoch_valid || p->control_epoch != epoch) {
       const double pedal_delta = pedal_target - p->pedal_previous_target;
       body_smoothing = 1.0 - exp(-(double)ksmps /
@@ -3492,6 +3704,9 @@ static int32_t wg_resonance_process(
           ((pedal_target > p->pedal ? 0.020 : 0.040) * sample_rate));
       p->body += body_smoothing * (body_target - p->body);
       p->pedal += pedal_smoothing * (pedal_target - p->pedal);
+      if (fabs(pedal_target - p->pedal) < 1.0e-10) {
+        p->pedal = pedal_target;
+      }
       if (fabs(pedal_delta) > 1.0e-6) {
         const double movement = sqrt(fabs(pedal_delta));
         const double gain = p->profile->mechanics.pedal_mechanical_gain;
@@ -3522,49 +3737,65 @@ static int32_t wg_resonance_process(
     }
   }
 
-  csound->LockMutex(p->send_lock);
-  {
-    const uint64_t epoch = csound->GetEngineKcounter(csound);
+  if (control_update) {
+    const double block_seconds = (double)ksmps / sample_rate;
+    const double damper_lift_amount = 1.0 - exp(-block_seconds / 0.008);
+    const double damper_land_amount = 1.0 - exp(-block_seconds / 0.022);
+    const uint32_t slot = (uint32_t)(epoch & 1U);
+    double lifted_sum = 0.0;
+
+    csound->LockMutex(p->state_lock);
     if (epoch > 0U) {
       const uint64_t wanted = epoch - 1U;
-      const uint32_t slot = (uint32_t)(wanted & 1U);
-      if (p->held_epoch_valid[slot] && p->held_epoch[slot] == wanted) {
-        memcpy(p->rendered_held_keys, p->held_snapshot[slot],
-               sizeof(p->rendered_held_keys));
-      }
+      wg_copy_held_snapshot_locked(
+          p, wanted, p->rendered_held_keys);
     }
-    if (control_update) {
-      const double block_seconds = (double)ksmps / sample_rate;
-      const uint32_t slot = (uint32_t)(epoch & 1U);
-      for (index = 0U; index < p->profile->key_count; index++) {
-        const WG_KEY_PROFILE *key_profile =
-            wg_profile_key(p->profile, index);
-        const double target = wg_key_damper_target(
-            key_profile, p->pedal,
-            p->rendered_held_keys[index] > 0U);
-        p->damper_contact[index] = wg_smooth_damper_contact(
-            p->damper_contact[index], target, block_seconds);
+    csound->UnlockMutex(p->state_lock);
+
+    for (index = 0U; index < p->profile->key_count; index++) {
+      const WG_KEY_PROFILE *key_profile =
+          wg_profile_key(p->profile, index);
+      const double old_contact = p->damper_contact[index];
+      const double target = wg_key_damper_target(
+          key_profile, p->pedal,
+          p->rendered_held_keys[index] > 0U);
+      const double contact = wg_smooth_damper_contact_amounts(
+          old_contact, target, damper_lift_amount, damper_land_amount);
+      if (contact != old_contact) {
+        p->damper_contact[index] = contact;
+        wg_update_sympathetic_key(p, index);
       }
-      memcpy(p->damper_snapshot[slot], p->damper_contact,
-             sizeof(p->damper_contact));
-      p->damper_epoch[slot] = epoch;
-      p->damper_epoch_valid[slot] = 1;
+      lifted_sum += fmax(
+          0.0, key_profile->damper_presence - p->damper_contact[index]);
     }
-    {
-      double presence_sum = 0.0;
-      double lifted_sum = 0.0;
-      for (index = 0U; index < p->profile->key_count; index++) {
-        const double presence =
-            wg_profile_key(p->profile, index)->damper_presence;
-        presence_sum += presence;
-        lifted_sum += fmax(0.0, presence - p->damper_contact[index]);
-      }
-      if (presence_sum > 1.0e-12) {
-        damper_open_mean = wg_clamp(lifted_sum / presence_sum, 0.0, 1.0);
-      }
-    }
+    p->damper_open_mean = p->damper_presence_sum > 1.0e-12
+        ? wg_clamp(lifted_sum / p->damper_presence_sum, 0.0, 1.0)
+        : 0.0;
+    p->sympathetic_active_epoch_valid = 0;
+
+    csound->LockMutex(p->state_lock);
+    memcpy(p->damper_snapshot[slot], p->damper_contact,
+           sizeof(p->damper_contact));
+    p->damper_epoch[slot] = epoch;
+    p->damper_epoch_valid[slot] = 1;
+    csound->UnlockMutex(p->state_lock);
   }
-  csound->UnlockMutex(p->send_lock);
+  damper_open_mean = p->damper_open_mean;
+
+  if (!p->sympathetic_active_epoch_valid ||
+      p->sympathetic_active_epoch != epoch) {
+    p->sympathetic_active_count = 0U;
+    for (index = 0U; index < sympathetic_mode_count; index++) {
+      if (!(p->sympathetic_input_gain[index] <= 0.0 &&
+            fabs(p->sympathetic_y1[index]) +
+                fabs(p->sympathetic_y2[index]) < 1.0e-18)) {
+        p->sympathetic_active_modes[p->sympathetic_active_count++] =
+            (uint16_t)index;
+      }
+    }
+    p->sympathetic_active_epoch = epoch;
+    p->sympathetic_active_epoch_valid = 1;
+  }
 
   if (p->idle) {
     if (fabs(p->pedal_action_real) + fabs(p->pedal_action_imaginary) +
@@ -3607,27 +3838,6 @@ static int32_t wg_resonance_process(
                        (0.82 + 0.36 * p->body);
     body_radius[index] = wg_clamp(
         exp(-WG_LN_1000 / (t60 * sample_rate)), 0.0, 0.9999995);
-  }
-
-  for (index = 0U; index < sympathetic_mode_count; index++) {
-    const uint32_t key_index = index / WG_SYMPATHETIC_PARTIALS;
-    const WG_KEY_PROFILE *key_profile =
-        wg_profile_key(p->profile, key_index);
-    const double contact = wg_clamp(
-        p->damper_contact[key_index], 0.0, 1.0);
-    const double loss = p->sympathetic_loss_open[index] + contact *
-        (p->sympathetic_loss_closed[index] -
-         p->sympathetic_loss_open[index]);
-    const double radius_closed = exp(
-        -p->sympathetic_loss_closed[index] / sample_rate);
-    sympathetic_radius[index] = wg_clamp(
-        exp(-loss / sample_rate),
-        0.0, 0.9999995);
-    sympathetic_coupling[index] =
-        pow(fmax(1.0e-12, 1.0 - radius_closed), 0.75) *
-        pow(fmax(1.0e-12, 1.0 - sympathetic_radius[index]), 0.25);
-    sympathetic_drive[index] = 0.060 * (1.0 - contact) *
-        p->sympathetic_level[index] * key_profile->sympathetic_scale;
   }
 
   fdn_t60 = 0.22 + 1.25 * pow(p->body, 1.5) +
@@ -3736,27 +3946,23 @@ static int32_t wg_resonance_process(
       modal_right += p->body_mode_right[index] * real;
     }
 
-    for (index = 0U; index < sympathetic_mode_count; index++) {
-      const double radius = sympathetic_radius[index];
-      const double cosine = p->sympathetic_cos[index];
-      const double sine = p->sympathetic_sin[index];
-      const double old_real = p->sympathetic_y1[index];
-      const double old_imaginary = p->sympathetic_y2[index];
-      const double drive = mid + p->sympathetic_input_side[index] * side;
-      if (sympathetic_drive[index] <= 0.0 &&
-          fabs(old_real) + fabs(old_imaginary) < 1.0e-18) {
-        continue;
-      }
+    for (active = 0U; active < p->sympathetic_active_count; active++) {
+      const uint32_t mode = p->sympathetic_active_modes[active];
+      const double radius = p->sympathetic_radius[mode];
+      const double cosine = p->sympathetic_cos[mode];
+      const double sine = p->sympathetic_sin[mode];
+      const double old_real = p->sympathetic_y1[mode];
+      const double old_imaginary = p->sympathetic_y2[mode];
+      const double drive = mid + p->sympathetic_input_side[mode] * side;
       const double real =
           radius * (cosine * old_real - sine * old_imaginary) +
-          2.0 * sympathetic_coupling[index] *
-              sympathetic_drive[index] * drive;
+          p->sympathetic_input_gain[mode] * drive;
       const double imaginary =
           radius * (sine * old_real + cosine * old_imaginary);
-      p->sympathetic_y1[index] = real;
-      p->sympathetic_y2[index] = imaginary;
-      sympathetic_left += p->sympathetic_left[index] * real;
-      sympathetic_right += p->sympathetic_right[index] * real;
+      p->sympathetic_y1[mode] = real;
+      p->sympathetic_y2[mode] = imaginary;
+      sympathetic_left += p->sympathetic_left[mode] * real;
+      sympathetic_right += p->sympathetic_right[mode] * real;
     }
     sympathetic_left *= 0.11;
     sympathetic_right *= 0.11;
@@ -3908,8 +4114,14 @@ static int32_t wg_claim_renderer(CSOUND *csound,
   int32_t claimed = 0;
 
   csound->LockMutex(state->resonance_lock);
-  if (state->renderer_owner == NULL || state->renderer_owner == owner) {
+  if (state->renderer_owner == NULL) {
     state->renderer_owner = owner;
+    csound->LockMutex(state->state_lock);
+    memcpy(state->rendered_held_keys, state->held_keys,
+           sizeof(state->rendered_held_keys));
+    csound->UnlockMutex(state->state_lock);
+    claimed = 1;
+  } else if (state->renderer_owner == owner) {
     claimed = 1;
   } else if (state->renderer_successor == owner) {
     claimed = 1;
@@ -3948,6 +4160,10 @@ static void wg_release_renderer(CSOUND *csound,
   }
   csound->UnlockMutex(state->resonance_lock);
 }
+
+static int32_t wg_collect_piano_send(CSOUND *csound,
+                                     WG_PIANO_STATE *state,
+                                     uint64_t epoch);
 
 static int32_t wg_process_renderer(
     CSOUND *csound, OPDS *h,
@@ -4010,6 +4226,19 @@ static int32_t wg_process_renderer(
         csound, h,
         "hlolli_wg_piano_resonance: piano %d output spans overlap\n",
         state->handle);
+  }
+  if (in_left == NULL || in_right == NULL) {
+    if (wg_collect_piano_send(csound, state, epoch)) {
+      in_left = state->render_send_left;
+      in_right = state->render_send_right;
+      body_mode_input = state->render_body_mode_send;
+    } else {
+      memset(out_left, 0, h->insdshead->ksmps * sizeof(MYFLT));
+      memset(out_right, 0, h->insdshead->ksmps * sizeof(MYFLT));
+      in_left = out_left;
+      in_right = out_right;
+      body_mode_input = NULL;
+    }
   }
   result = wg_resonance_process(
       csound, h, out_left, out_right,
@@ -4136,35 +4365,56 @@ static int32_t hlolli_wg_piano_resonance_handle_init(
   return result;
 }
 
+static int32_t wg_collect_piano_send(CSOUND *csound,
+                                    WG_PIANO_STATE *state,
+                                    uint64_t epoch)
+{
+  const uint32_t ksmps = state->send_ksmps;
+  const size_t body_samples =
+      (size_t)state->profile->body_mode_count * ksmps;
+  int32_t found = 0;
+  uint32_t lane;
+
+  memset(state->render_send_left, 0, ksmps * sizeof(MYFLT));
+  memset(state->render_send_right, 0, ksmps * sizeof(MYFLT));
+  memset(state->render_body_mode_send, 0,
+         body_samples * sizeof(MYFLT));
+  if (epoch == 0U) {
+    return 0;
+  }
+
+  {
+    const uint64_t wanted = epoch - 1U;
+    const uint32_t slot = (uint32_t)(wanted & 1U);
+    for (lane = 0U; lane < WG_SEND_LANES; lane++) {
+      size_t sample;
+      csound->LockMutex(state->send_lock[slot][lane]);
+      if (state->send_epoch_valid[slot][lane] &&
+          state->send_epoch[slot][lane] == wanted) {
+        for (sample = 0U; sample < ksmps; sample++) {
+          state->render_send_left[sample] +=
+              state->send_left[slot][lane][sample];
+          state->render_send_right[sample] +=
+              state->send_right[slot][lane][sample];
+        }
+        for (sample = 0U; sample < body_samples; sample++) {
+          state->render_body_mode_send[sample] +=
+              state->body_mode_send[slot][lane][sample];
+        }
+        found = 1;
+      }
+      csound->UnlockMutex(state->send_lock[slot][lane]);
+    }
+  }
+  return found;
+}
+
 static int32_t hlolli_wg_piano_resonance_handle_perf(
     CSOUND *csound, HLOLLI_WG_PIANO_RESONANCE_HANDLE *p)
 {
-  const uint64_t epoch = csound->GetEngineKcounter(csound);
-  const MYFLT *in_left = NULL;
-  const MYFLT *in_right = NULL;
-  const MYFLT *body_mode_input = NULL;
-
-  csound->LockMutex(p->piano->send_lock);
-  if (epoch > 0U) {
-    const uint64_t wanted = epoch - 1U;
-    const uint32_t slot = (uint32_t)(wanted & 1U);
-    if (p->piano->send_epoch_valid[slot] &&
-        p->piano->send_epoch[slot] == wanted) {
-      in_left = p->piano->send_left[slot];
-      in_right = p->piano->send_right[slot];
-      body_mode_input = p->piano->body_mode_send[slot];
-    }
-  }
-  csound->UnlockMutex(p->piano->send_lock);
-  if (in_left == NULL) {
-    memset(p->out_left, 0, p->h.insdshead->ksmps * sizeof(MYFLT));
-    memset(p->out_right, 0, p->h.insdshead->ksmps * sizeof(MYFLT));
-    in_left = p->out_left;
-    in_right = p->out_right;
-  }
   return wg_process_renderer(
       csound, &p->h, p->out_left, p->out_right,
-      in_left, in_right, body_mode_input,
+      NULL, NULL, NULL,
       p->kbody, p->kpedal, p->piano);
 }
 
