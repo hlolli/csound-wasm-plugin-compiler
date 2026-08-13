@@ -4632,7 +4632,7 @@ static double wg_violin_secondary_tick(
     const double work = fabs(
         string->bow_friction_force * string->bow_relative_velocity);
     const double noise_level = bowed ?
-        0.0040 * string->bow_contact *
+        0.0032 * string->bow_contact *
             (0.18 + 0.82 * string->bow_scratch_score) *
             work / (0.020 + work) : 0.0;
     double noise;
