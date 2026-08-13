@@ -68,6 +68,11 @@ bun test tests/browser-compiler.test.ts -t \
   "compiles and plays the WG piano demo to the score end"
 ```
 
+`demos/wg-violin/hlolli-wg-violin.c` is a byte-for-byte copy of
+[`hlolli_wg_violin.c`](https://github.com/hlolli/hlolli_wg_violin/blob/main/hlolli_wg_violin.c).
+Make model and profile changes in that repository, run its native checks, then
+replace the demo copy and run the matching WG violin browser test.
+
 ## Commands
 
 | Command | Use |
@@ -228,7 +233,7 @@ The app uses the AudioWorklet and worker path with `useWorker: true` and `useSAB
 ## Limits
 
 - Source can use one `plugin.c` or `plugin.cpp` file
-- Source size is 256 KiB
+- Source size is 384 KiB
 - Compiler output is 128 KiB
 - Plugin size is 4 MiB
 - Share data is limited to 1 MiB before compression

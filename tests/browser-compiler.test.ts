@@ -198,6 +198,22 @@ describe("browser Clang", () => {
     ).toBeLessThan(260_000)
   })
 
+  test("compiles and plays the WG violin demo to the score end", async () => {
+    const source = await Bun.file(
+      resolve(projectRoot, "demos/wg-violin/hlolli-wg-violin.c")
+    ).text()
+    const csd = await Bun.file(
+      resolve(projectRoot, "demos/wg-violin/violin.csd")
+    ).text()
+    const result = await compilePlugin(source, "c", csoundHeaders)
+
+    expect(result.ok).toBe(true)
+    expect(result.wasm).toBeInstanceOf(ArrayBuffer)
+    expect(
+      await runPluginToScoreEnd(result.wasm as ArrayBuffer, csd)
+    ).toBeLessThan(10_000)
+  })
+
   test("reserves enough loader memory for large static data", async () => {
     const source = DEFAULT_C_SOURCE.replace(
       "typedef struct {",

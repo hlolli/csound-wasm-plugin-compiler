@@ -1,6 +1,6 @@
 import type { SourceLanguage } from "../editors"
 
-export const MAX_SOURCE_BYTES = 256 * 1024
+export const MAX_SOURCE_BYTES = 384 * 1024
 export const MAX_COMPILER_OUTPUT_BYTES = 128 * 1024
 export const MAX_WASM_BYTES = 4 * 1024 * 1024
 export const COMPILER_GUARD_MS = 30_000
