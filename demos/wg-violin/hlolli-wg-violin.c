@@ -15,7 +15,6 @@
 
   Source: https://github.com/hlolli/hlolli_wg_violin
 
-  SPDX-License-Identifier: MIT
 */
 
 #include <csdl.h>
@@ -352,7 +351,7 @@ typedef struct {
 } WG_VIOLIN_BODY_MODE_STATE;
 
 #define WG_VIOLIN_PROFILE_SCHEMA_VERSION 1U
-#define WG_VIOLIN_PROFILE_COUNT 2U
+#define WG_VIOLIN_PROFILE_COUNT 1U
 
 /* BEGIN GENERATED VIOLIN PROFILE DATA */
 /* Generated violin profile data. Do not edit by hand. */
@@ -361,7 +360,7 @@ static const WG_VIOLIN_PROFILE wg_profile_generic_violin = {
     .id = "generic_violin",
     .display_name = "Generic Violin",
     .source_sha256 =
-        "f9d4fc7a2a3349b29b1bfca5724cb2170bfda9b74345d9d3e2176bf07b4097ba",
+        "36a3b81b98237f54d881792b89dc50d31244148dcefcfc7bffcb9a81a38085a6",
     .strings = {
         {0.55, 0.25, 20000.0, 16250.0, 0.25},
         {0.42, 0.25, 4200.0, 3900.0, 0.25},
@@ -438,91 +437,8 @@ static const WG_VIOLIN_PROFILE wg_profile_generic_violin = {
     },
 };
 
-static const WG_VIOLIN_PROFILE wg_profile_chamber_violin_a = {
-    .schema_version = WG_VIOLIN_PROFILE_SCHEMA_VERSION,
-    .id = "chamber_violin_a",
-    .display_name = "Chamber Violin A",
-    .source_sha256 =
-        "0e5592e9df30dbea0337ea9ffcc0b3615de48675e3aca703ebb0d465f551cf2d",
-    .strings = {
-        {0.55, 0.25, 20000.0, 16250.0, 0.25},
-        {0.42, 0.25, 4200.0, 3900.0, 0.25},
-        {0.30, 0.25, 12000.0, 6500.0, 0.25},
-        {0.22, 0.25, 12000.0, 6500.0, 0.25},
-    },
-    .bow = {
-        .speed_scale = 0.65,
-        .friction = {0.35, 0.45, 0.1, 0.40, 0.01, 1.20},
-        .force_map = {0.20, 60.0, 0.10, 0.85, 0.75, 0.15, 0.85, 1.5},
-        .contact = {6000.0, 0.18, 0.70, 0.03, 0.012, 0.010, 0.180, 0.08, 0.16, 2500.0, 2.0, 0.15},
-    },
-    .gestures = {
-        .transition_seconds = 0.012,
-        .bow_change_seconds = 0.012,
-        .bow_change_contact_dip = 0.48,
-        .bow_change_force_floor = 0.72,
-        .detache = {0.007, 0.045, 0.62, 0.50, -0.18, 0.96, 0.08, -0.04, 2.0},
-        .martele = {0.004, 0.008, 0.040, 0.35, 1.05, -0.35, -0.23, 0.03, 1.12, -0.37, 1.7},
-        .spiccato = {0.032, 0.050, 0.018, 0.25, 1.05, 0.18, 1.02},
-        .tremolo = {0.006, 8.0, 14.0, 0.82, 0.22, 0.68, 0.32},
-    },
-    .release_t60_seconds = {0.42, 0.27, 0.13, 0.09, 0.18, 0.72, 0.32, 0.38, 0.16, 0.22},
-    .harmonics = {
-        .touch_level = {0.97, 0.97, 0.97, 0.97, 0.97, 0.97, 0.97},
-        .attack_seconds = 0.012,
-        .release_seconds = 0.025,
-        .order_transition_seconds = 0.012,
-    },
-    .exciters = {
-        .noise_highpass = 0.89,
-        .contact_attack_seconds = 0.0008,
-        .contact_release_seconds = 0.003,
-        .speed_smooth_seconds = 0.001,
-        .pizzicato_right = {0.00018, 0.00072, 0.36, 0.0025},
-        .pizzicato_left = {0.00010, 0.00034, 0.27, 0.018},
-        .bartok = {0.00010, 0.00030, 0.00045, 0.00085, 0.00010, 0.00024, 0.48, 0.010, 0.62, 0.62},
-        .battuto = {0.003, 0.10, 0.16, 0.72, 350000.0, 1250000.0, 3.0, 7.0, 0.0025},
-        .tratto = {0.55, 0.04, 0.12, 0.12, 0.006},
-    },
-    .coupling = {
-        .bridge_coefficients = {
-            {0.0, 0.00035, 0.00035, 0.00035},
-            {0.00035, 0.0, 0.00035, 0.00035},
-            {0.00035, 0.00035, 0.0, 0.00035},
-            {0.00035, 0.00035, 0.00035, 0.0},
-        },
-        .sympathetic_open_scale = 6.0,
-    },
-    .body = {
-        .wet_gain = 0.18,
-        .gain_smoothing_seconds = 0.015,
-        .body_decay_base = 1.35,
-        .body_decay_range = 0.55,
-        .mute_decay_scale = 2.5,
-        .body_tone_depth = 0.28,
-        .mute_low_attenuation = 0.15,
-        .mute_high_attenuation = 0.65,
-        .mute_level_attenuation = 0.55,
-        .modes = {
-            {295.0, 20.0, 0.6309573444801932, 0.0},
-            {395.0, 25.0, 0.22387211385683395, -0.10},
-            {500.0, 18.0, 1.0, 0.08},
-            {540.0, 30.0, 0.7943282347242815, -0.16},
-            {780.0, 25.0, 0.7079457843841379, 0.16},
-            {820.0, 55.0, 0.5200, -0.22},
-            {1040.0, 80.0, 0.4000, 0.22},
-            {1320.0, 120.0, 0.3400, -0.26},
-            {1710.0, 180.0, 0.3100, 0.26},
-            {2350.0, 420.0, 0.5000, -0.30},
-            {3300.0, 650.0, 0.3600, 0.30},
-            {4700.0, 1100.0, 0.1800, -0.24},
-        },
-    },
-};
-
 static const WG_VIOLIN_PROFILE *const wg_violin_profiles[] = {
     &wg_profile_generic_violin,
-    &wg_profile_chamber_violin_a,
 };
 
 static const WG_VIOLIN_PROFILE *const wg_default_violin_profile =
