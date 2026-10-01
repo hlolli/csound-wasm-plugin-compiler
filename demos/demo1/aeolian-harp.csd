@@ -27,14 +27,12 @@ instr Piano
   iStrange = p12
   iPan = p14
 
-  xtratim 2.60
   kRelease release
   kTrigger = (kRelease == 0 ? iVelocity : 0)
   kFrequency init cpsmidinn(iNote)
   ; The shared resonator owns this piano's damper rail. The note input stays
   ; in the call for compatibility; the handle gives ringing notes that rail.
   kPedal = gkSharedPedal
-  kTail linsegr 1, 0.01, 1, 2.60, 0
 
   aModelLeft, aModelRight hlolli_wg_piano \
       kTrigger, kFrequency, iHardness, iHammerPosition, iDecay, \
@@ -43,8 +41,8 @@ instr Piano
   ; Keep some of the model's own width, then place each hand on the keyboard.
   aMono = 0.5 * (aModelLeft + aModelRight)
   aPanLeft, aPanRight pan2 aMono, iPan
-  aLeft = (0.56 * aModelLeft + 0.62 * aPanLeft) * kTail
-  aRight = (0.56 * aModelRight + 0.62 * aPanRight) * kTail
+  aLeft = (0.56 * aModelLeft + 0.62 * aPanLeft)
+  aRight = (0.56 * aModelRight + 0.62 * aPanRight)
 
   gaPianoLeft += aLeft
   gaPianoRight += aRight
@@ -60,22 +58,22 @@ endin
 ; line, the two hands and the bass their own touch and place on the keyboard.
 instr Melody
   event_i "i", "Piano", 0, p3, p4, p5, \
-      0.41, 0.12, 0.78, 0.38, 0.60, 0.70, 0, p6, 0.64
+      0.43, 0.12, 0.70, 0.42, 0.60, 0.70, 0, p6, 0.64
 endin
 
 instr RH
   event_i "i", "Piano", 0, p3, p4, p5, \
-      0.31, 0.12, 0.74, 0.36, 0.56, 0.66, 0, p6, 0.62
+      0.43, 0.12, 0.70, 0.42, 0.60, 0.66, 0, p6, 0.62
 endin
 
 instr Bass
   event_i "i", "Piano", 0, p3, p4, p5, \
-      0.36, 0.14, 0.82, 0.34, 0.54, 0.72, 0, p6, 0.36
+      0.43, 0.12, 0.70, 0.42, 0.60, 0.72, 0, p6, 0.36
 endin
 
 instr LH
   event_i "i", "Piano", 0, p3, p4, p5, \
-      0.32, 0.14, 0.77, 0.35, 0.54, 0.68, 0, p6, 0.38
+      0.43, 0.12, 0.70, 0.42, 0.60, 0.68, 0, p6, 0.38
 endin
 
 ; The handle owns the shared board, sympathetic strings, phases and pedal state.
@@ -89,9 +87,9 @@ instr Master
       gaPianoRight + 0.34 * aPianoWetRight, 0.91, 9000
   kEndFade linseg 1, p3 - 3.50, 1, 3.50, 0
   aMixLeft = 2.15 * (0.68 * gaPianoLeft + 0.32 * aPianoWetLeft + \
-      0.12 * aRoomLeft) * kEndFade
+      0.04 * aRoomLeft) * kEndFade
   aMixRight = 2.15 * (0.68 * gaPianoRight + 0.32 * aPianoWetRight + \
-      0.12 * aRoomRight) * kEndFade
+      0.04 * aRoomRight) * kEndFade
   aOutLeft limit aMixLeft, -0.98, 0.98
   aOutRight limit aMixRight, -0.98, 0.98
   outs aOutLeft, aOutRight
@@ -112,14 +110,109 @@ endin
 ; Written music: 119.655 seconds; soundboard/room tail: 9 seconds.
 i "Master" 0 128.654948
 
-; The score pedal lane drives the shared damper rail and strings.
-i "Pedal" 37.764364 0.03 0.73
-i "Pedal" 82.041808 0.03 0.82
-i "Pedal" 93.795698 0.03 0.68
-i "Pedal" 101.817598 0.03 0.77
-i "Pedal" 113.644930 0.03 0.34
-i "Pedal" 114.930200 0.03 0.77
-i "Pedal" 125.000000 0.03 0.00
+; Clear the shared pedal for 125 ms when the bass pitch class changes.
+; Release 75 ms before the new bass, then restore the score depth 50 ms after.
+i "Pedal" 9.820226 0.01 0.00
+i "Pedal" 9.945226 0.01 0.82
+i "Pedal" 12.102709 0.01 0.00
+i "Pedal" 12.227709 0.01 0.82
+i "Pedal" 13.243493 0.01 0.00
+i "Pedal" 13.368493 0.01 0.82
+i "Pedal" 13.834340 0.01 0.00
+i "Pedal" 13.959340 0.01 0.82
+i "Pedal" 14.439011 0.01 0.00
+i "Pedal" 14.564011 0.01 0.82
+i "Pedal" 16.725108 0.01 0.00
+i "Pedal" 16.850108 0.01 0.82
+i "Pedal" 19.103957 0.01 0.00
+i "Pedal" 19.228957 0.01 0.82
+i "Pedal" 28.375528 0.01 0.00
+i "Pedal" 28.500528 0.01 0.82
+i "Pedal" 30.647529 0.01 0.00
+i "Pedal" 30.772529 0.01 0.82
+i "Pedal" 32.973047 0.01 0.00
+i "Pedal" 33.098047 0.01 0.82
+i "Pedal" 35.286035 0.01 0.00
+i "Pedal" 35.411035 0.01 0.82
+i "Pedal" 37.689364 0.01 0.00
+i "Pedal" 37.814364 0.01 0.73
+i "Pedal" 40.036092 0.01 0.00
+i "Pedal" 40.161092 0.01 0.73
+i "Pedal" 42.338062 0.01 0.00
+i "Pedal" 42.463062 0.01 0.73
+i "Pedal" 44.604061 0.01 0.00
+i "Pedal" 44.729061 0.01 0.73
+i "Pedal" 46.851779 0.01 0.00
+i "Pedal" 46.976779 0.01 0.73
+i "Pedal" 47.428814 0.01 0.00
+i "Pedal" 47.553814 0.01 0.73
+i "Pedal" 47.994963 0.01 0.00
+i "Pedal" 48.119963 0.01 0.73
+i "Pedal" 48.550730 0.01 0.00
+i "Pedal" 48.675730 0.01 0.73
+i "Pedal" 49.121070 0.01 0.00
+i "Pedal" 49.246070 0.01 0.73
+i "Pedal" 52.019200 0.01 0.00
+i "Pedal" 52.144200 0.01 0.73
+i "Pedal" 53.794955 0.01 0.00
+i "Pedal" 53.919955 0.01 0.73
+i "Pedal" 58.203842 0.01 0.00
+i "Pedal" 58.328842 0.01 0.73
+i "Pedal" 58.776282 0.01 0.00
+i "Pedal" 58.901282 0.01 0.73
+i "Pedal" 61.111575 0.01 0.00
+i "Pedal" 61.236575 0.01 0.73
+i "Pedal" 61.705746 0.01 0.00
+i "Pedal" 61.830746 0.01 0.73
+i "Pedal" 62.283080 0.01 0.00
+i "Pedal" 62.408080 0.01 0.73
+i "Pedal" 62.849029 0.01 0.00
+i "Pedal" 62.974029 0.01 0.73
+i "Pedal" 63.430465 0.01 0.00
+i "Pedal" 63.555465 0.01 0.73
+i "Pedal" 64.020911 0.01 0.00
+i "Pedal" 64.145911 0.01 0.73
+i "Pedal" 64.590351 0.01 0.00
+i "Pedal" 64.715351 0.01 0.73
+i "Pedal" 65.151310 0.01 0.00
+i "Pedal" 65.276310 0.01 0.73
+i "Pedal" 65.746381 0.01 0.00
+i "Pedal" 65.871381 0.01 0.73
+i "Pedal" 66.352553 0.01 0.00
+i "Pedal" 66.477553 0.01 0.73
+i "Pedal" 66.935189 0.01 0.00
+i "Pedal" 67.060189 0.01 0.73
+i "Pedal" 67.506828 0.01 0.00
+i "Pedal" 67.631828 0.01 0.73
+i "Pedal" 68.105740 0.01 0.00
+i "Pedal" 68.230740 0.01 0.73
+i "Pedal" 70.443982 0.01 0.00
+i "Pedal" 70.568982 0.01 0.73
+i "Pedal" 71.038153 0.01 0.00
+i "Pedal" 71.163153 0.01 0.73
+i "Pedal" 71.612787 0.01 0.00
+i "Pedal" 71.737787 0.01 0.73
+i "Pedal" 72.181437 0.01 0.00
+i "Pedal" 72.306437 0.01 0.73
+i "Pedal" 72.774107 0.01 0.00
+i "Pedal" 72.899107 0.01 0.73
+i "Pedal" 81.966808 0.01 0.00
+i "Pedal" 82.091808 0.01 0.82
+i "Pedal" 93.720698 0.01 0.00
+i "Pedal" 93.845698 0.01 0.68
+i "Pedal" 96.201347 0.01 0.00
+i "Pedal" 96.326347 0.01 0.68
+i "Pedal" 101.817598 0.01 0.77
+i "Pedal" 102.394582 0.01 0.00
+i "Pedal" 102.519582 0.01 0.77
+i "Pedal" 103.625966 0.01 0.00
+i "Pedal" 103.750966 0.01 0.77
+i "Pedal" 113.644930 0.01 0.34
+i "Pedal" 113.785312 0.01 0.00
+i "Pedal" 113.910312 0.01 0.34
+i "Pedal" 114.855200 0.01 0.00
+i "Pedal" 114.980200 0.01 0.77
+i "Pedal" 125.000000 0.01 0.00
 
 ; pickup · gently placed E-flat
 i "Melody" 0.005678 0.734694 75 0.5092 0.82

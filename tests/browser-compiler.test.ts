@@ -17,6 +17,7 @@ import {
   initializeCompiler
 } from "../src/compiler/compile"
 import { extractCsoundHeaders } from "../src/compiler/sdk-archive"
+import { MAX_SOURCE_BYTES } from "../src/compiler/protocol"
 import {
   getOpcodeWasmLoaderSize,
   OPCODE_WASM_BUILD_HEADER,
@@ -180,6 +181,13 @@ describe("browser Clang", () => {
     expect(new TextDecoder().decode(buildHeaders[0])).toBe(
       OPCODE_WASM_BUILD_HEADER
     )
+  })
+
+  test("rejects source beyond the embedded-model size limit", async () => {
+    const result = await compilePlugin(" ".repeat(MAX_SOURCE_BYTES + 1), "c", csoundHeaders)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toBe("source_limit")
   })
 
   test("compiles and plays the WG piano demo to the score end", async () => {

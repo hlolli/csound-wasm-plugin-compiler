@@ -233,7 +233,7 @@ The app uses the AudioWorklet and worker path with `useWorker: true` and `useSAB
 ## Limits
 
 - Source can use one `plugin.c` or `plugin.cpp` file
-- Source size is 384 KiB
+- Source size is 2 MiB (including embedded model coefficients)
 - Compiler output is 128 KiB
 - Plugin size is 4 MiB
 - Share data is limited to 1 MiB before compression
