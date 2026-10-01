@@ -20489,7 +20489,7 @@ static int32_t hlolli_wg_piano_init(CSOUND *csound, HLOLLI_WG_PIANO *p)
     p->piano_send_lane=(uint32_t)(p->piano_voice_serial%WG_SEND_LANES);
     csound->UnlockMutex(p->piano->state_lock);
   }
-  csound->AuxAlloc(csound,WG_MODAL_CAPACITY*sizeof(WG_ACTIVE_MODE)+CS_KSMPS*sizeof(double),&p->memory);
+  csound->AuxAlloc(csound,WG_MODAL_CAPACITY*sizeof(WG_ACTIVE_MODE)+4U*CS_KSMPS*sizeof(double),&p->memory);
   if (p->memory.auxp==NULL)
     return csound->InitError(csound,"hlolli_wg_piano: cannot allocate resonance state\n");
   /* The opcode handles score/MIDI release itself, including callers that do
@@ -20500,10 +20500,92 @@ static int32_t hlolli_wg_piano_init(CSOUND *csound, HLOLLI_WG_PIANO *p)
   return OK;
 }
 
+/* Evaluate four successive samples from one complex state, then advance
+   that state by four samples. This keeps the same poles in double precision. */
+#if defined(__clang__) && defined(__wasm__)
+#define WG_MODAL_SIMD 1
+__attribute__((target("simd128")))
+#endif
+static void wg_modal_render(double *restrict sum, const double *restrict envelope,
+                            unsigned offset, unsigned limit,
+                            double *state_real, double *state_imag,
+                            double a, double b)
+{
+  const double a2=a*a-b*b,b2=2.0*a*b;
+  const double a3=a2*a-b2*b,b3=a2*b+b2*a;
+  const double a4=a2*a2-b2*b2,b4=2.0*a2*b2;
+#ifdef WG_MODAL_SIMD
+  typedef double pair __attribute__((vector_size(16)));
+  const pair ar01={1.0,a},ai01={0.0,b},ar23={a2,a3},ai23={b2,b3};
+#endif
+  double real=*state_real,imag=*state_imag;
+  unsigned s=offset;
+  if (envelope!=NULL) {
+    for (; s+3U<limit; s+=4U) {
+      const double next=real*a4-imag*b4;
+#ifdef WG_MODAL_SIMD
+      const pair vr={real,real},vi={imag,imag};
+      pair out01,out23,env01,env23;
+      memcpy(&out01,sum+s,sizeof(out01));
+      memcpy(&out23,sum+s+2U,sizeof(out23));
+      memcpy(&env01,envelope+s,sizeof(env01));
+      memcpy(&env23,envelope+s+2U,sizeof(env23));
+      out01+=(vr*ar01-vi*ai01)*env01;
+      out23+=(vr*ar23-vi*ai23)*env23;
+      memcpy(sum+s,&out01,sizeof(out01));
+      memcpy(sum+s+2U,&out23,sizeof(out23));
+#else
+      sum[s]+=real*envelope[s];
+      sum[s+1U]+=(real*a-imag*b)*envelope[s+1U];
+      sum[s+2U]+=(real*a2-imag*b2)*envelope[s+2U];
+      sum[s+3U]+=(real*a3-imag*b3)*envelope[s+3U];
+#endif
+      imag=real*b4+imag*a4;
+      real=next;
+    }
+    for (; s<limit; s++) {
+      const double next=real*a-imag*b;
+      sum[s]+=real*envelope[s];
+      imag=real*b+imag*a;
+      real=next;
+    }
+  } else {
+    for (; s+3U<limit; s+=4U) {
+      const double next=real*a4-imag*b4;
+#ifdef WG_MODAL_SIMD
+      const pair vr={real,real},vi={imag,imag};
+      pair out01,out23;
+      memcpy(&out01,sum+s,sizeof(out01));
+      memcpy(&out23,sum+s+2U,sizeof(out23));
+      out01+=vr*ar01-vi*ai01;
+      out23+=vr*ar23-vi*ai23;
+      memcpy(sum+s,&out01,sizeof(out01));
+      memcpy(sum+s+2U,&out23,sizeof(out23));
+#else
+      sum[s]+=real;
+      sum[s+1U]+=real*a-imag*b;
+      sum[s+2U]+=real*a2-imag*b2;
+      sum[s+3U]+=real*a3-imag*b3;
+#endif
+      imag=real*b4+imag*a4;
+      real=next;
+    }
+    for (; s<limit; s++) {
+      const double next=real*a-imag*b;
+      sum[s]+=real;
+      imag=real*b+imag*a;
+      real=next;
+    }
+  }
+  *state_real=real;
+  *state_imag=imag;
+}
+
 static int32_t hlolli_wg_piano_perf(CSOUND *csound, HLOLLI_WG_PIANO *p)
 {
   WG_ACTIVE_MODE *modes=(WG_ACTIVE_MODE *)p->memory.auxp;
   double *send=(double *)((char *)p->memory.auxp+p->memory.size)-CS_KSMPS;
+  double *envelopes=send-3U*CS_KSMPS;
   const unsigned offset=p->h.insdshead->ksmps_offset;
   const unsigned limit=CS_KSMPS-p->h.insdshead->ksmps_no_end;
   const double rate=p->sample_rate;
@@ -20599,32 +20681,40 @@ static int32_t hlolli_wg_piano_perf(CSOUND *csound, HLOLLI_WG_PIANO *p)
     if (m->activity) p->modal_active[active_count++]=index;
   }
   p->modal_active_count=active_count;
-  for (s=offset; s<limit; s++) {
-    double sum=0.0,envelopes[3],close=1.0;
-    for (i=0; i<p->modal_group_count; i++) envelopes[i]=wg_modal_envelope(p,i);
-    for (i=0; i<active_count; i++) {
-      WG_ACTIVE_MODE *m=&modes[p->modal_active[i]];
-      if (m->activity&1U) {
-        const double real=m->fresh_real,imag=m->fresh_imag;
-        sum+=real*envelopes[m->group];
-        m->fresh_real=(real*m->step_real-imag*m->step_imag)*damper_step;
-        m->fresh_imag=(real*m->step_imag+imag*m->step_real)*damper_step;
-      }
-      if (m->activity&2U) {
-        const double real=m->ring_real,imag=m->ring_imag;
-        sum+=real;
-        m->ring_real=(real*m->step_real-imag*m->step_imag)*damper_step;
-        m->ring_imag=(real*m->step_imag+imag*m->step_real)*damper_step;
-      }
-      if (m->activity&4U) {
-        const double real=m->tail_real,imag=m->tail_imag;
-        sum+=real;
-        m->tail_real=(real*m->step_real-imag*m->step_imag)*tail_step;
-        m->tail_imag=(real*m->step_imag+imag*m->step_real)*tail_step;
-      }
+  if (active_count==0U) {
+    /* A new strike restores the modes and resets the attack. Keep silent
+       release voices cheap while the host retains their release time. */
+    if (limit>offset) {
+      p->modal_age+=limit-offset;
+      if (p->h.insdshead->relesing) p->modal_release_samples+=limit-offset;
     }
+    p->modal_attack=0.0;
+    wg_commit_piano_send(csound,p,offset,limit);
+    return OK;
+  }
+  /* Prepare each envelope once. Render a whole block per mode so its state
+     stays in registers and each activity branch runs once per block. The
+     mode and state summation order is unchanged at every sample. */
+  for (s=offset; s<limit; s++) {
+    for (i=0; i<p->modal_group_count; i++)
+      envelopes[i*CS_KSMPS+s]=wg_modal_envelope(p,i);
     p->modal_attack*=attack_step;
     p->modal_age++;
+  }
+  for (i=0; i<active_count; i++) {
+    WG_ACTIVE_MODE *m=&modes[p->modal_active[i]];
+    if (m->activity&1U)
+      wg_modal_render(send,envelopes+m->group*CS_KSMPS,offset,limit,
+                      &m->fresh_real,&m->fresh_imag,m->step_real*damper_step,m->step_imag*damper_step);
+    if (m->activity&2U)
+      wg_modal_render(send,NULL,offset,limit,
+                      &m->ring_real,&m->ring_imag,m->step_real*damper_step,m->step_imag*damper_step);
+    if (m->activity&4U)
+      wg_modal_render(send,NULL,offset,limit,
+                      &m->tail_real,&m->tail_imag,m->step_real*tail_step,m->step_imag*tail_step);
+  }
+  for (s=offset; s<limit; s++) {
+    double sum=send[s],close=1.0;
     if (p->h.insdshead->relesing) {
       p->modal_release_samples++;
       close=1.0-wg_smoothstep(7.0,8.0,(double)p->modal_release_samples/rate);
