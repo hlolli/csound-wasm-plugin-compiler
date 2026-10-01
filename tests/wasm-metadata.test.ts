@@ -10,7 +10,7 @@ import {
 
 const browserLayout = {
   memoryBaseBytes: 128 * 1024 * 1024,
-  hostTableEntries: 3837,
+  hostTableEntries: 4421,
 }
 
 const minimalWasm = new Uint8Array([
@@ -65,7 +65,7 @@ const importedMemoryAndTableWasm = new Uint8Array([
   0x70,
   0x00,
   0x84,
-  0x20,
+  0x40,
 ]).buffer
 
 describe("OPCODE.WASM metadata", () => {
@@ -113,7 +113,7 @@ describe("OPCODE.WASM metadata", () => {
       getOpcodeWasmLoaderSize(importedMemoryAndTableWasm, browserLayout),
     ).toEqual({
       memoryBytes: 3 * 65_536,
-      tableEntries: 263,
+      tableEntries: 3775,
     })
 
     const branded = addOpcodeWasmHeader(
@@ -131,8 +131,8 @@ describe("OPCODE.WASM metadata", () => {
       0x80,
       0x0c,
       0,
-      0x87,
-      0x02,
+      0xbf,
+      0x1d,
       0,
       0,
     ])

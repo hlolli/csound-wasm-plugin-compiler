@@ -19,8 +19,8 @@ import { addOpcodeWasmHeader } from "./wasm-metadata"
 const outputName = "plugin.wasm"
 const encoder = new TextEncoder()
 export const CSOUND_PLUGIN_GLOBAL_BASE = 128 * 1024 * 1024
-export const CSOUND_HOST_TABLE_ENTRIES = 3837
-export const CSOUND_PLUGIN_TABLE_BASE = 4096
+export const CSOUND_HOST_TABLE_ENTRIES = 4421
+export const CSOUND_PLUGIN_TABLE_BASE = 8192
 
 export interface CompilerProgress {
   loaded: number

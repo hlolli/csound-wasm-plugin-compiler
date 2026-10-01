@@ -207,7 +207,7 @@ The app does not send code to a model by itself. A WebMCP browser agent can read
 
 ## Csound plugin loading
 
-The selected `@csound/browser` build accepts plugins through `withPlugins` while it creates a Csound instance.
+The app pins `@csound/browser` to `7.0.0-beta35` and its matching `@csound/wasm-bin` to `7.0.0-beta25`. This build accepts plugins through `withPlugins` while it creates a Csound instance.
 
 It has no supported call that adds a new Wasm plugin to a running instance. Each good Run must:
 

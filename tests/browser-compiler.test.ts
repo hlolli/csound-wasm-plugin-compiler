@@ -37,7 +37,7 @@ const csoundBrowserEntry = resolve(
   "node_modules/@csound/browser/dist/csound.js"
 )
 const csoundBrowserExport =
-  "const Csound = kd; const libcsound = __lcs__; export { Csound, libcsound }; export default Csound;"
+  "const Csound = __csoundEsmExport__; const libcsound = __libcsoundEsmExport__; export { Csound, libcsound }; export default Csound;"
 let libcsoundFactory: typeof import("@csound/browser").libcsound | undefined
 let csoundHeaders: Tree
 
@@ -66,7 +66,7 @@ async function loadLibcsound(): Promise<
 
   const executable = source.replace(
     csoundBrowserExport,
-    "return __lcs__;"
+    "return __libcsoundEsmExport__;"
   )
   libcsoundFactory = new Function(executable)() as typeof libcsoundFactory
   if (!libcsoundFactory) {
